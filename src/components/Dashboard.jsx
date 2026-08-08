@@ -5,31 +5,61 @@ import Calendar from './Calendar';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
 import AdminInBodyUploadModal from './AdminInBodyUploadModal';
 
-// Robust Date Formatter (handles ISO dates, timestamps, and LookinBody dot dates)
-const formatDate = (dateVal) => {
-  if (!dateVal) return 'Unknown Date';
-  try {
-    if (typeof dateVal === 'object' && dateVal.seconds) {
-      return new Date(dateVal.seconds * 1000).toLocaleDateString('en-US', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      });
-    }
-    const cleanStr = String(dateVal).trim().replace(/\./g, '-');
-    const d = new Date(cleanStr);
-    if (isNaN(d.getTime())) {
-      const fallback = new Date(dateVal);
-      if (isNaN(fallback.getTime())) return 'Unknown Date';
-      return fallback.toLocaleDateString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-    }
-    return d.toLocaleDateString('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  } catch (err) {
-    return 'Unknown Date';
+// Robust parser that returns a real Date object (or null)
+const parseScanDate = (dateVal) => {
+  if (!dateVal) return null;
+
+  // Firestore Timestamp
+  if (typeof dateVal === 'object' && dateVal.seconds) {
+    return new Date(dateVal.seconds * 1000);
   }
+
+  // Already a Date
+  if (dateVal instanceof Date && !isNaN(dateVal.getTime())) {
+    return dateVal;
+  }
+
+  const str = String(dateVal).trim();
+
+  // LookinBody style: 20240512143000 or 20240512
+  if (/^\d{8,14}$/.test(str)) {
+    const year = str.substring(0, 4);
+    const month = str.substring(4, 6);
+    const day = str.substring(6, 8);
+    const hour = str.length >= 10 ? str.substring(8, 10) : '12';
+    const min = str.length >= 12 ? str.substring(10, 12) : '00';
+    const sec = str.length >= 14 ? str.substring(12, 14) : '00';
+    const d = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Common formats: 2024.05.12, 2024.05.12 14:30:00, 2024/05/12, ISO, etc.
+  const cleaned = str
+    .replace(/\./g, '-')          // 2024.05.12 → 2024-05-12
+    .replace(/\//g, '-')          // 2024/05/12 → 2024-05-12
+    .replace(' ', 'T');           // make it more ISO-like
+
+  const d = new Date(cleaned);
+  if (!isNaN(d.getTime())) return d;
+
+  // Last resort
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
 };
+
+// Display formatter
+const formatDate = (dateVal) => {
+  const d = parseScanDate(dateVal);
+  if (!d) return 'Unknown Date';
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
 
 // =========================================================================
 // COMPONENT: INBODY PROGRESS CHART
@@ -39,10 +69,10 @@ function InBodyProgressChart({ scans }) {
 
   if (!scans || scans.length === 0) return null;
 
-  // Sort scans chronologically (oldest to newest)
+  // Sort scans chronologically (oldest → newest)
   const sortedScans = [...scans].sort((a, b) => {
-    const da = new Date(String(a.scanDate || '').replace(/\./g, '-')).getTime() || 0;
-    const db = new Date(String(b.scanDate || '').replace(/\./g, '-')).getTime() || 0;
+    const da = parseScanDate(a.scanDate)?.getTime() ?? 0;
+    const db = parseScanDate(b.scanDate)?.getTime() ?? 0;
     return da - db;
   });
 
@@ -54,26 +84,36 @@ function InBodyProgressChart({ scans }) {
     );
   }
 
-  // Calculate net changes between first and latest scan
+  // Safe number helper
+  const num = (v) => {
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  };
+
   const firstScan = sortedScans[0];
   const latestScan = sortedScans[sortedScans.length - 1];
 
-  const weightDiff = (latestScan.weight - firstScan.weight).toFixed(1);
-  const smmDiff = (latestScan.smm - firstScan.smm).toFixed(1);
-  const pbfDiff = (latestScan.pbf - firstScan.pbf).toFixed(1);
+  const weightDiff = (num(latestScan.weight) - num(firstScan.weight)).toFixed(1);
+  const smmDiff = (num(latestScan.smm) - num(firstScan.smm)).toFixed(1);
+  const pbfDiff = (num(latestScan.pbf) - num(firstScan.pbf)).toFixed(1);
 
-  // Metric configurations
   const metricConfigs = {
-    weight: { label: 'Weight', unit: 'lbs', color: '#3b82f6', getValue: (s) => parseFloat(s.weight) || 0 },
-    smm: { label: 'Muscle (SMM)', unit: 'lbs', color: '#10b981', getValue: (s) => parseFloat(s.smm) || 0 },
-    pbf: { label: 'Body Fat %', unit: '%', color: '#a855f7', getValue: (s) => parseFloat(s.pbf) || 0 },
-    score: { label: 'InBody Score', unit: 'pts', color: '#f59e0b', getValue: (s) => parseFloat(s.score) || 0 },
+    weight: { label: 'Weight', unit: 'lbs', color: '#3b82f6', getValue: (s) => num(s.weight) },
+    smm: { label: 'Muscle (SMM)', unit: 'lbs', color: '#10b981', getValue: (s) => num(s.smm) },
+    pbf: { label: 'Body Fat %', unit: '%', color: '#a855f7', getValue: (s) => num(s.pbf) },
+    score: { label: 'InBody Score', unit: 'pts', color: '#f59e0b', getValue: (s) => num(s.score) },
   };
 
   const config = metricConfigs[metric];
   const values = sortedScans.map(config.getValue).filter((v) => v > 0);
 
-  if (values.length < 2) return null;
+  if (values.length < 2) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl mb-6 text-xs text-slate-400 text-center">
+        Not enough valid numeric data to draw the chart.
+      </div>
+    );
+  }
 
   const minVal = Math.min(...values) * 0.95;
   const maxVal = Math.max(...values) * 1.05;
@@ -87,7 +127,7 @@ function InBodyProgressChart({ scans }) {
     const v = config.getValue(s);
     const x = padding + (idx / (sortedScans.length - 1)) * (width - padding * 2);
     const y = height - padding - ((v - minVal) / range) * (height - padding * 2);
-    return { x, y, val: v, date: formatDate(s.scanDate), raw: s };
+    return { x, y, val: v, date: formatDate(s.scanDate) };
   });
 
   const pathD = points.reduce((acc, p, idx) => {
@@ -98,14 +138,14 @@ function InBodyProgressChart({ scans }) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl mb-6 space-y-4">
-      {/* STATS HEADER */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider">Progress Trends ({scans.length} Scans)</h3>
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+            Progress Trends ({scans.length} Scans)
+          </h3>
           <p className="text-xs text-slate-400 mt-0.5">Tracking body composition changes over time</p>
         </div>
 
-        {/* METRIC TOGGLE BUTTONS */}
         <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
           {Object.keys(metricConfigs).map((key) => (
             <button
@@ -121,29 +161,27 @@ function InBodyProgressChart({ scans }) {
         </div>
       </div>
 
-      {/* OVERVIEW SUMMARY BADGES */}
       <div className="grid grid-cols-3 gap-3 text-xs">
         <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
           <span className="text-[10px] text-slate-500 uppercase font-bold block">Weight Change</span>
-          <span className={`text-base font-black ${weightDiff <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {weightDiff > 0 ? `+${weightDiff}` : weightDiff} lbs
+          <span className={`text-base font-black ${Number(weightDiff) <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {Number(weightDiff) > 0 ? `+${weightDiff}` : weightDiff} lbs
           </span>
         </div>
         <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
           <span className="text-[10px] text-slate-500 uppercase font-bold block">Muscle (SMM) Change</span>
-          <span className={`text-base font-black ${smmDiff >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {smmDiff > 0 ? `+${smmDiff}` : smmDiff} lbs
+          <span className={`text-base font-black ${Number(smmDiff) >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {Number(smmDiff) > 0 ? `+${smmDiff}` : smmDiff} lbs
           </span>
         </div>
         <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
           <span className="text-[10px] text-slate-500 uppercase font-bold block">Body Fat % Change</span>
-          <span className={`text-base font-black ${pbfDiff <= 0 ? 'text-emerald-400' : 'text-purple-400'}`}>
-            {pbfDiff > 0 ? `+${pbfDiff}` : pbfDiff}%
+          <span className={`text-base font-black ${Number(pbfDiff) <= 0 ? 'text-emerald-400' : 'text-purple-400'}`}>
+            {Number(pbfDiff) > 0 ? `+${pbfDiff}` : pbfDiff}%
           </span>
         </div>
       </div>
 
-      {/* SVG GRAPH */}
       <div className="relative w-full overflow-x-auto pt-2">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto overflow-visible">
           <defs>
@@ -153,15 +191,11 @@ function InBodyProgressChart({ scans }) {
             </linearGradient>
           </defs>
 
-          {/* Area Gradient Fill */}
           <path d={areaD} fill={`url(#grad-${metric})`} />
-
-          {/* Line Path */}
           <path d={pathD} fill="none" stroke={config.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
 
-          {/* Data Points */}
           {points.map((p, idx) => (
-            <g key={idx} className="group cursor-pointer">
+            <g key={idx}>
               <circle
                 cx={p.x}
                 cy={p.y}
@@ -169,7 +203,6 @@ function InBodyProgressChart({ scans }) {
                 fill="#0f172a"
                 stroke={config.color}
                 strokeWidth="2.5"
-                className="transition-all group-hover:r-7 group-hover:fill-white"
               />
               <text
                 x={p.x}
@@ -455,43 +488,34 @@ export default function Dashboard() {
 
       {/* VIEW PANEL 1: CLIENTS & CHAT */}
       {currentNavView === 'clients' && (
-        <div className="flex-1 flex overflow-hidden">
-          {/* CLIENT ROSTER & MEMBER LOOKUP */}
-          <section className="w-80 bg-slate-900/50 border-r border-slate-800 flex flex-col p-4 shrink-0 overflow-y-auto">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-base font-bold text-white">Clients ({filteredClients.length})</h2>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => setIsGhlLookupOpen(true)}
-                  className="px-2 py-1 text-[11px] font-bold rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
-                  title="Lookup Member in GHL"
-                >
-                  🔍 GHL Lookup
-                </button>
-                {currentUserRole === 'Owner' && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* CLIENT ROSTER */}
+          <section className="w-72 border-r border-slate-800 bg-slate-900/50 flex flex-col">
+            <div className="p-4 border-b border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-white">Clients ({clients.length})</h2>
+                <div className="flex gap-1.5">
                   <button
-                    onClick={() => setIsAdminUploadOpen(true)}
-                    className="px-2 py-1 text-[11px] font-bold rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
-                    title="Upload Master LookinBody CSV"
+                    onClick={() => setIsGhlLookupOpen(true)}
+                    className="px-2.5 py-1 text-[10px] font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-600/30"
                   >
+                    🔍 GHL Lookup
+                  </button>
+                  <button className="px-2.5 py-1 text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 rounded-lg">
                     ⚙️ Bulk
                   </button>
-                )}
+                </div>
               </div>
-            </div>
-
-            {/* SEARCH / LOOKUP BAR */}
-            <div className="mb-3">
               <input
                 type="text"
                 value={clientSearchTerm}
                 onChange={(e) => setClientSearchTerm(e.target.value)}
                 placeholder="Search member name, email, phone..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-500"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {filteredClients.map((c) => {
                 const isSelected = selectedClient?.id === c.id;
                 const ghlVal = c.ghlContactId || c.ghlId || c.ghl || c.contactId;
@@ -499,7 +523,7 @@ export default function Dashboard() {
                   <div
                     key={c.id}
                     onClick={() => setSelectedClient(c)}
-                    className={`p-3.5 rounded-xl cursor-pointer border transition-all ${
+                    className={`p-3 rounded-xl cursor-pointer border transition-all ${
                       isSelected
                         ? 'bg-blue-600/10 border-blue-500/50 text-white shadow-md'
                         : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-700'
@@ -598,33 +622,32 @@ export default function Dashboard() {
                           >
                             <div>
                               <div className="text-xs font-semibold text-slate-400">{formatDate(scan.scanDate)}</div>
-                              <div className="flex gap-4 mt-2">
+                              <div className="flex gap-4 mt-2 text-xs">
                                 <div>
-                                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Weight</span>
-                                  <span className="text-lg font-black text-slate-100">{scan.weight > 0 ? `${scan.weight} lbs` : '--'}</span>
+                                  <span className="text-[10px] text-slate-500 uppercase block">Weight</span>
+                                  <span className="font-bold text-white text-sm">{scan.weight || 0} lbs</span>
                                 </div>
                                 <div>
-                                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Muscle (SMM)</span>
-                                  <span className="text-lg font-black text-blue-400">{scan.smm > 0 ? `${scan.smm} lbs` : '--'}</span>
+                                  <span className="text-[10px] text-slate-500 uppercase block">Muscle (SMM)</span>
+                                  <span className="font-bold text-emerald-400 text-sm">{scan.smm || 0} lbs</span>
                                 </div>
                                 <div>
-                                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Body Fat %</span>
-                                  <span className="text-lg font-black text-purple-400">{scan.pbf > 0 ? `${scan.pbf}%` : '--'}</span>
+                                  <span className="text-[10px] text-slate-500 uppercase block">Body Fat %</span>
+                                  <span className="font-bold text-purple-400 text-sm">{scan.pbf || 0}%</span>
                                 </div>
                               </div>
                             </div>
-
-                            <div className="flex items-center gap-2">
+                            <div className="flex gap-2">
                               <button
                                 onClick={() => setSelectedScan(scan)}
-                                className="px-3 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg"
                               >
                                 View Sheet
                               </button>
                               <button
                                 onClick={() => handleDeleteScan(scan.id)}
-                                className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-                                title="Delete Scan"
+                                className="p-1.5 text-slate-500 hover:text-red-400 transition-colors"
+                                title="Delete scan"
                               >
                                 🗑️
                               </button>
@@ -636,20 +659,18 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* TAB 2: GHL MESSAGES & LIVE CHAT */}
+                {/* TAB 2: GHL LIVE SMS */}
                 {activeTab === 'messages' && (
-                  <div className="flex flex-col h-[550px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                    <div className="flex-1 p-4 overflow-y-auto space-y-3">
+                  <div className="flex flex-col h-[calc(100%-80px)] border border-slate-800 rounded-2xl overflow-hidden bg-slate-900">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
                       {loadingGhl ? (
                         <div className="text-xs text-slate-400 text-center py-8">Loading messages from GHL...</div>
                       ) : ghlData.messages.length === 0 ? (
-                        <div className="text-xs text-slate-400 text-center py-8">
-                          No recent messages found in GHL for this client.
-                        </div>
+                        <div className="text-xs text-slate-400 text-center py-8">No SMS history found for this client.</div>
                       ) : (
                         ghlData.messages.map((m, idx) => {
-                          const msgText = m.body || m.message || m.text || m.bodyText || (typeof m === 'string' ? m : '');
-                          const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
+                          const isClient = m.direction === 'inbound' || m.direction === 'Incoming';
+                          const msgText = m.body || m.message || m.text;
                           const msgDate = formatDate(m.dateAdded || m.createdAt || m.date);
 
                           return (
@@ -749,11 +770,10 @@ export default function Dashboard() {
                     Active
                   </span>
                 </div>
-                <div className="text-xs text-slate-400 pt-2 border-t border-slate-800">
-                  Email: <span className="text-slate-200">{staff.email}</span>
-                </div>
-                <div className="text-xs text-slate-400">
-                  Assigned Clients: <span className="text-white font-bold">{staff.assignedClients}</span>
+                <div className="text-xs text-slate-400">{staff.email}</div>
+                <div className="pt-2 border-t border-slate-800 text-xs">
+                  <span className="text-slate-500">Assigned Clients:</span>{' '}
+                  <span className="font-bold text-white">{staff.assignedClients}</span>
                 </div>
               </div>
             ))}
@@ -761,13 +781,15 @@ export default function Dashboard() {
         </main>
       )}
 
-      {/* GHL MEMBER LOOKUP & IMPORT MODAL */}
+      {/* GHL LOOKUP MODAL */}
       {isGhlLookupOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Search & Import Member from GHL</h3>
-              <button onClick={() => setIsGhlLookupOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">GHL Contact Lookup</h3>
+              <button onClick={() => setIsGhlLookupOpen(false)} className="text-slate-400 hover:text-white text-xl">
+                ×
+              </button>
             </div>
 
             <div className="flex gap-2">
