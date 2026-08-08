@@ -31,6 +31,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
   const [isManageRoomsOpen, setIsManageRoomsOpen] = useState(false);
   const [isManageTypesOpen, setIsManageTypesOpen] = useState(false);
+  const [editingBooking, setEditingBooking] = useState(null); // null = create mode
 
   // Live GHL Member Search inside Modal State
   const [ghlQuery, setGhlQuery] = useState('');
@@ -67,8 +68,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         const batch = writeBatch(db);
         const r1 = doc(collection(db, 'rooms'));
         const r2 = doc(collection(db, 'rooms'));
-        batch.set(r1, { name: 'InBody 270 Room', description: 'Standard body comp room', createdAt: new Date() });
-        batch.set(r2, { name: 'InBody 570 Room', description: 'Advanced segmental body comp room', createdAt: new Date() });
+        batch.set(r1, { name: 'InBody 270 Room', description: 'Primary body composition scanner', createdAt: new Date() });
+        batch.set(r2, { name: 'InBody 570 Room', description: 'Secondary / overflow scanner', createdAt: new Date() });
         await batch.commit();
       }
 
@@ -79,7 +80,6 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         const t1 = doc(collection(db, 'appointment_types'));
         const t2 = doc(collection(db, 'appointment_types'));
         const t3 = doc(collection(db, 'appointment_types'));
-
         batch.set(t1, { name: 'InBody Scan', durationMinutes: 15, createdAt: new Date() });
         batch.set(t2, { name: 'Follow-up Appointment', durationMinutes: 30, createdAt: new Date() });
         batch.set(t3, { name: 'Initial Consult', durationMinutes: 60, createdAt: new Date() });
@@ -141,8 +141,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       }));
     }
   }, [rooms, appointmentTypes]);
-
-  // ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
   // 2. LIVE GHL CONTACT SEARCH & AUTO-IMPORT
   // ---------------------------------------------------------------------------
   const handleSearchGhl = async () => {
@@ -164,7 +163,6 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   };
 
   const handleSelectGhlContact = async (contact) => {
-    // Check if contact already exists in local clients roster
     const existingClient = clients.find(
       (c) =>
         (c.ghlContactId && c.ghlContactId === contact.id) ||
@@ -180,14 +178,13 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         ghlContactId: contact.id,
       }));
     } else {
-      // Auto-import GHL contact into Firestore clients collection so they appear in roster permanently
       try {
         const newClientDoc = {
           name: contact.name,
           email: contact.email || '',
           phone: contact.phone || '',
           ghlContactId: contact.id,
-          coach: 'Coach Brian',
+          coach: '',
           createdAt: new Date(),
         };
         const docRef = await addDoc(collection(db, 'clients'), newClientDoc);
@@ -213,7 +210,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   };
 
   // ---------------------------------------------------------------------------
-  // 3. APPOINTMENT TYPE SELECTION HANDLER (Auto-populates Duration)
+  // 3. APPOINTMENT TYPE SELECTION HANDLER
   // ---------------------------------------------------------------------------
   const handleTypeSelectChange = (typeId) => {
     const matchedType = appointmentTypes.find((t) => t.id === typeId);
@@ -225,7 +222,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   };
 
   // ---------------------------------------------------------------------------
-  // 4. BOOKING CREATION & OVERLAP PREVENTION
+  // 4. BOOKING CREATE / UPDATE + OVERLAP PREVENTION
   // ---------------------------------------------------------------------------
   const handleCreateBooking = async (e) => {
     e.preventDefault();
@@ -249,8 +246,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     const newStartMin = timeToMinutes(newBooking.time);
     const newEndMin = newStartMin + Number(newBooking.durationMinutes);
 
-    // OVERLAP CHECK: Calculate start & end time window per room & date
+    // OVERLAP CHECK (skip self when editing)
     const hasOverlap = bookings.some((b) => {
+      if (editingBooking && b.id === editingBooking.id) return false;
       if (b.roomId !== newBooking.roomId || b.date !== newBooking.date) return false;
 
       const existingStart = timeToMinutes(b.time);
@@ -266,23 +264,33 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       return;
     }
 
+    const payload = {
+      clientId: newBooking.clientId || '',
+      clientName: newBooking.clientName.trim(),
+      ghlContactId: newBooking.ghlContactId || '',
+      appointmentTypeId: newBooking.appointmentTypeId,
+      appointmentTypeName: selectedTypeObj?.name || '',
+      roomId: newBooking.roomId,
+      roomName: selectedRoomObj?.name || '',
+      date: newBooking.date,
+      time: newBooking.time,
+      durationMinutes: Number(newBooking.durationMinutes),
+      notes: newBooking.notes || '',
+      updatedAt: new Date(),
+    };
+
     try {
-      await addDoc(collection(db, 'bookings'), {
-        clientId: newBooking.clientId,
-        clientName: newBooking.clientName,
-        ghlContactId: newBooking.ghlContactId || '',
-        appointmentTypeId: newBooking.appointmentTypeId,
-        appointmentTypeName: selectedTypeObj?.name || 'Appointment',
-        roomId: newBooking.roomId,
-        roomName: selectedRoomObj?.name || 'Room',
-        date: newBooking.date,
-        time: newBooking.time,
-        durationMinutes: Number(newBooking.durationMinutes),
-        notes: newBooking.notes,
-        createdAt: new Date(),
-      });
+      if (editingBooking) {
+        await updateDoc(doc(db, 'bookings', editingBooking.id), payload);
+      } else {
+        await addDoc(collection(db, 'bookings'), {
+          ...payload,
+          createdAt: new Date(),
+        });
+      }
 
       setIsAddBookingOpen(false);
+      setEditingBooking(null);
       setNewBooking({
         clientId: selectedClient?.id || '',
         clientName: selectedClient?.name || '',
@@ -295,8 +303,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         notes: '',
       });
     } catch (err) {
-      console.error('Error creating booking:', err);
-      alert('Failed to save booking: ' + err.message);
+      console.error('Save booking error:', err);
+      alert('Failed to save appointment: ' + err.message);
     }
   };
 
@@ -309,7 +317,27 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     }
   };
 
-  // ---------------------------------------------------------------------------
+  const openEditBooking = (booking) => {
+    setEditingBooking(booking);
+    setNewBooking({
+      clientId: booking.clientId || '',
+      clientName: booking.clientName || '',
+      ghlContactId: booking.ghlContactId || '',
+      appointmentTypeId: booking.appointmentTypeId || '',
+      roomId: booking.roomId || '',
+      date: booking.date || new Date().toISOString().split('T')[0],
+      time: booking.time || '10:00',
+      durationMinutes: booking.durationMinutes || 15,
+      notes: booking.notes || '',
+    });
+    setIsAddBookingOpen(true);
+  };
+
+  const closeBookingModal = () => {
+    setIsAddBookingOpen(false);
+    setEditingBooking(null);
+  };
+    // ---------------------------------------------------------------------------
   // 5. ROOM CRUD HANDLERS
   // ---------------------------------------------------------------------------
   const handleSaveRoom = async (e) => {
@@ -389,7 +417,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       appointmentTypeName: a.title || 'GHL Appointment',
       clientName: a.contactName || selectedClient?.name || 'Client',
       date: a.startTime ? new Date(a.startTime).toISOString().split('T')[0] : 'Today',
-      time: a.startTime ? new Date(a.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Scheduled',
+      time: a.startTime
+        ? new Date(a.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Scheduled',
       roomName: 'GHL Synced Calendar',
       durationMinutes: 30,
       source: 'GHL',
@@ -428,7 +458,10 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
           </button>
 
           <button
-            onClick={() => setIsAddBookingOpen(true)}
+            onClick={() => {
+              setEditingBooking(null);
+              setIsAddBookingOpen(true);
+            }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-xl shadow-lg transition-colors text-white"
           >
             ➕ Add New Booking
@@ -443,7 +476,6 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
             <div className="flex items-center gap-3">
               <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Schedule</h3>
 
-              {/* Dynamic Room Filter Tabs */}
               <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px] overflow-x-auto">
                 <button
                   onClick={() => setSelectedRoomFilter('ALL')}
@@ -451,28 +483,26 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                     selectedRoomFilter === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  All Rooms
+                  All
                 </button>
-                {rooms.map((r) => (
+                {rooms.map((room) => (
                   <button
-                    key={r.id}
-                    onClick={() => setSelectedRoomFilter(r.id)}
+                    key={room.id}
+                    onClick={() => setSelectedRoomFilter(room.id)}
                     className={`px-2.5 py-1 font-bold rounded-md transition-all whitespace-nowrap ${
-                      selectedRoomFilter === r.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                      selectedRoomFilter === room.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    {r.name}
+                    {room.name}
                   </button>
                 ))}
               </div>
             </div>
-
-            <span className="text-xs text-slate-400 font-mono">{filteredAppointments.length} Bookings</span>
           </div>
 
           {filteredAppointments.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-              No upcoming appointments booked for this view.
+            <div className="text-center py-12 text-xs text-slate-500">
+              No appointments scheduled. Click "Add New Booking" to create one.
             </div>
           ) : (
             <div className="space-y-3">
@@ -482,7 +512,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   className="p-4 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl flex justify-between items-center transition-all"
                 >
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-sm text-white">{appt.appointmentTypeName}</span>
                       <span
                         className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
@@ -512,13 +542,22 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                       <div className="text-[11px] text-slate-400">{appt.time}</div>
                     </div>
                     {appt.source === 'Local' && (
-                      <button
-                        onClick={() => handleDeleteBooking(appt.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                        title="Delete Booking"
-                      >
-                        🗑️
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditBooking(appt)}
+                          className="px-2.5 py-1.5 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                          title="Edit Booking"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteBooking(appt.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Delete Booking"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -534,45 +573,44 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
           </h3>
 
           {rooms.length === 0 ? (
-            <div className="text-xs text-slate-500 py-4">No rooms added. Click "Manage Rooms" to add one.</div>
+            <div className="text-xs text-slate-500">No rooms created yet.</div>
           ) : (
             rooms.map((room) => {
-              const todayStr = new Date().toISOString().split('T')[0];
-              const roomTodayBookings = bookings.filter((b) => b.roomId === room.id && b.date === todayStr);
-
+              const today = new Date().toISOString().split('T')[0];
+              const todayBookings = bookings.filter((b) => b.roomId === room.id && b.date === today);
               return (
-                <div key={room.id} className="p-4 bg-slate-950 border border-slate-800 rounded-xl text-xs space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-emerald-400 text-sm">{room.name}</span>
-                    <span className="px-2 py-0.5 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold rounded-full">
-                      {roomTodayBookings.length} Today
-                    </span>
+                <div key={room.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <div className="font-bold text-sm text-white">{room.name}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">{room.description || 'No description'}</div>
+                  <div className="text-[11px] text-emerald-400 mt-2 font-medium">
+                    {todayBookings.length} booking{todayBookings.length !== 1 ? 's' : ''} today
                   </div>
-                  <p className="text-slate-400">{room.description || 'Configured room station'}</p>
                 </div>
               );
             })
           )}
         </div>
       </div>
-
-      {/* ========================================================================= */}
-      {/* MODAL 1: ADD BOOKING MODAL (WITH LIVE GHL SEARCH) */}
+            {/* ========================================================================= */}
+      {/* MODAL 1: ADD / EDIT BOOKING */}
       {/* ========================================================================= */}
       {isAddBookingOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl my-8">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-4">
-              <h3 className="text-base font-bold text-white">Add New Calendar Booking</h3>
-              <button onClick={() => setIsAddBookingOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+              <h3 className="text-base font-bold text-white">
+                {editingBooking ? 'Edit Appointment' : 'Add New Calendar Booking'}
+              </h3>
+              <button onClick={closeBookingModal} className="text-slate-400 hover:text-white">
+                ✕
+              </button>
             </div>
 
             <form onSubmit={handleCreateBooking} className="space-y-4 text-xs">
-              {/* Member Selection Section */}
+              {/* Member Selection */}
               <div className="space-y-2">
                 <label className="block text-slate-300 font-semibold">Select Member</label>
 
-                {/* Option A: Pick from Local Roster */}
                 <select
                   value={newBooking.clientId}
                   onChange={(e) => {
@@ -594,11 +632,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   ))}
                 </select>
 
-                {/* Option B: Search GHL Contacts Live */}
+                {/* GHL Search */}
                 <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                  <div className="text-[11px] font-bold text-blue-400 flex items-center justify-between">
-                    <span>🔍 Search & Select GoHighLevel Contact</span>
-                  </div>
+                  <div className="text-[11px] font-bold text-blue-400">🔍 Search & Select GoHighLevel Contact</div>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -618,14 +654,13 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                     </button>
                   </div>
 
-                  {/* Search Results dropdown */}
                   {ghlResults.length > 0 && (
                     <div className="max-h-36 overflow-y-auto space-y-1 pt-1 border-t border-slate-800">
                       {ghlResults.map((contact) => (
                         <div
                           key={contact.id}
                           onClick={() => handleSelectGhlContact(contact)}
-                          className="p-2 bg-slate-900 hover:bg-slate-800 rounded-lg cursor-pointer flex justify-between items-center text-xs transition-colors"
+                          className="p-2 bg-slate-900 hover:bg-slate-800 rounded-lg cursor-pointer flex justify-between items-center text-xs"
                         >
                           <div>
                             <div className="font-bold text-white">{contact.name}</div>
@@ -640,7 +675,6 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   )}
                 </div>
 
-                {/* Option C: Final Selected / Custom Name Input */}
                 <input
                   type="text"
                   value={newBooking.clientName}
@@ -651,7 +685,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                 />
               </div>
 
-              {/* Dynamic Appointment Type Selection */}
+              {/* Appointment Type */}
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Appointment Type</label>
                 <select
@@ -660,6 +694,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
                   required
                 >
+                  <option value="">-- Select Type --</option>
                   {appointmentTypes.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name} ({t.durationMinutes} min)
@@ -668,15 +703,16 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                 </select>
               </div>
 
-              {/* Dynamic Room Selection */}
+              {/* Room */}
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Room / Machine</label>
+                <label className="block text-slate-300 font-semibold mb-1">Room</label>
                 <select
                   value={newBooking.roomId}
                   onChange={(e) => setNewBooking((prev) => ({ ...prev, roomId: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
                   required
                 >
+                  <option value="">-- Select Room --</option>
                   {rooms.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name}
@@ -685,81 +721,79 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                 </select>
               </div>
 
-              {/* Date, Time, Duration */}
-              <div className="grid grid-cols-3 gap-2">
+              {/* Date & Time */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">Date</label>
                   <input
                     type="date"
                     value={newBooking.date}
                     onChange={(e) => setNewBooking((prev) => ({ ...prev, date: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-200 focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Start Time</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Time</label>
                   <input
                     type="time"
                     value={newBooking.time}
                     onChange={(e) => setNewBooking((prev) => ({ ...prev, time: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-200 focus:outline-none focus:border-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Duration (min)</label>
-                  <input
-                    type="number"
-                    value={newBooking.durationMinutes}
-                    onChange={(e) => setNewBooking((prev) => ({ ...prev, durationMinutes: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-200 focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
                     required
                   />
                 </div>
               </div>
 
-              {/* Notes */}
+              {/* Duration */}
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Notes</label>
-                <textarea
-                  rows={2}
-                  value={newBooking.notes}
-                  onChange={(e) => setNewBooking((prev) => ({ ...prev, notes: e.target.value }))}
-                  placeholder="Optional appointment notes..."
+                <label className="block text-slate-300 font-semibold mb-1">Duration (minutes)</label>
+                <input
+                  type="number"
+                  min="5"
+                  step="5"
+                  value={newBooking.durationMinutes}
+                  onChange={(e) => setNewBooking((prev) => ({ ...prev, durationMinutes: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAddBookingOpen(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-5 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500">
-                  Save Booking
-                </button>
+              {/* Notes */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Notes (optional)</label>
+                <textarea
+                  value={newBooking.notes}
+                  onChange={(e) => setNewBooking((prev) => ({ ...prev, notes: e.target.value }))}
+                  rows={2}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
+                  placeholder="Any notes..."
+                />
               </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-colors"
+              >
+                {editingBooking ? 'Save Changes' : 'Create Booking'}
+              </button>
             </form>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 2: MANAGE ROOMS MODAL (ADD / EDIT / DELETE) */}
+      {/* MODAL 2: MANAGE ROOMS */}
       {/* ========================================================================= */}
       {isManageRoomsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white">Manage Database Rooms</h3>
-              <button onClick={() => setIsManageRoomsOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+              <button onClick={() => setIsManageRoomsOpen(false)} className="text-slate-400 hover:text-white">
+                ✕
+              </button>
             </div>
 
-            {/* Room Add / Edit Form */}
             <form onSubmit={handleSaveRoom} className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-3 text-xs">
               <div className="font-bold text-slate-200">{editingRoom ? 'Edit Room' : 'Add New Room'}</div>
               <div className="grid grid-cols-2 gap-2">
@@ -798,7 +832,6 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
               </div>
             </form>
 
-            {/* Existing Rooms List */}
             <div className="max-h-60 overflow-y-auto space-y-2">
               {rooms.map((room) => (
                 <div key={room.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center text-xs">
@@ -831,30 +864,33 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 3: MANAGE APPOINTMENT TYPES MODAL (ADD / EDIT / DELETE) */}
+      {/* MODAL 3: MANAGE APPOINTMENT TYPES */}
       {/* ========================================================================= */}
       {isManageTypesOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white">Manage Appointment Types</h3>
-              <button onClick={() => setIsManageTypesOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+              <button onClick={() => setIsManageTypesOpen(false)} className="text-slate-400 hover:text-white">
+                ✕
+              </button>
             </div>
 
-            {/* Type Add / Edit Form */}
             <form onSubmit={handleSaveType} className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-3 text-xs">
               <div className="font-bold text-slate-200">{editingType ? 'Edit Type' : 'Add New Type'}</div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="text"
-                  placeholder="Name (e.g. InBody Scan)"
+                  placeholder="Type Name (e.g. InBody Scan)"
                   value={typeFormData.name}
                   onChange={(e) => setTypeFormData((p) => ({ ...p, name: e.target.value }))}
-                  className="col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-blue-500"
+                  className="bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-blue-500"
                   required
                 />
                 <input
                   type="number"
+                  min="5"
+                  step="5"
                   placeholder="Duration (min)"
                   value={typeFormData.durationMinutes}
                   onChange={(e) => setTypeFormData((p) => ({ ...p, durationMinutes: e.target.value }))}
@@ -881,7 +917,6 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
               </div>
             </form>
 
-            {/* Existing Types List */}
             <div className="max-h-60 overflow-y-auto space-y-2">
               {appointmentTypes.map((typeItem) => (
                 <div
