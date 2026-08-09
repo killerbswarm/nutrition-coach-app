@@ -149,7 +149,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     setIsSearchingGhl(true);
     try {
       const res = await fetch(
-        `https://searchghlcontacts-mllpdtijza-uc.a.run.app?query=${encodeURIComponent(ghlQuery)}`
+        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(ghlQuery)}`
       );
       if (res.ok) {
         const data = await res.json();

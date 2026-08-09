@@ -176,6 +176,7 @@ export default function Dashboard() {
   const [clientBookings, setClientBookings] = useState([]);
   const [isChartOpen, setIsChartOpen] = useState(true);
   const [isCompareMode, setIsCompareMode] = useState(false);
+  const messagesEndRef = React.useRef(null);
 
   // Client CRUD
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -193,6 +194,11 @@ export default function Dashboard() {
   const [assignForm, setAssignForm] = useState({ habitId: '', weeksAssigned: 4, startDate: new Date().toISOString().split('T')[0] });
 
   const currentUserRole = 'Owner';
+  useEffect(() => {
+  if (activeTab === 'messages' && messagesEndRef.current) {
+    messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }
+}, [ghlData.messages, activeTab]);
 
   // Load clients
   useEffect(() => {
@@ -204,6 +210,14 @@ export default function Dashboard() {
     return () => unsub();
   }, []);
 
+  const toTitleCase = (str) => {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
   // Load scans
   useEffect(() => {
     const q = query(collection(db, 'inbody_scans'), orderBy('scanDate', 'desc'));
@@ -263,7 +277,7 @@ export default function Dashboard() {
         if (ghlId && ghlId !== 'N/A' && !String(ghlId).startsWith('dummy')) params.append('contactId', ghlId);
         if (selectedClient.email) params.append('email', selectedClient.email);
         if (selectedClient.phone) params.append('phone', selectedClient.phone);
-        const res = await fetch(`https://getghlcontactdetails-mllpdtijza-uc.a.run.app?${params.toString()}`);
+        const res = await fetch(`https://us-central1-swarm-nutrition-app.cloudfunctions.net/getGhlContactDetails?${params.toString()}`);
         if (res.ok) {
           const data = await res.json();
           setGhlData({
@@ -365,7 +379,7 @@ export default function Dashboard() {
     if (!ghlId || ghlId === 'N/A' || String(ghlId).startsWith('dummy')) return alert('No valid GHL ID');
     setIsSendingSms(true);
     try {
-      const res = await fetch('https://sendghlsms-mllpdtijza-uc.a.run.app', {
+      const res = await fetch('https://us-central1-swarm-nutrition-app.cloudfunctions.net/sendGhlSms', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contactId: ghlId, message: outgoingSms }),
       });
@@ -651,28 +665,58 @@ export default function Dashboard() {
 
                 {/* MESSAGES TAB */}
                 {activeTab === 'messages' && (
-                  <div className="flex flex-col h-[550px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                    <div className="flex-1 p-4 overflow-y-auto space-y-3">
-                      {loadingGhl ? <div className="text-xs text-slate-400 text-center py-8">Loading...</div> :
-                        ghlData.messages.length === 0 ? <div className="text-xs text-slate-400 text-center py-8">No messages found</div> :
-                        ghlData.messages.map((m, idx) => {
-                          const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
-                          return (
-                            <div key={idx} className={`max-w-[80%] p-3.5 rounded-2xl text-xs ${isClient ? 'bg-slate-800 text-slate-200 border border-slate-700 mr-auto' : 'bg-blue-600 text-white ml-auto'}`}>
-                              <div className="flex justify-between items-center mb-1 gap-4">
-                                <span className="font-bold">{isClient ? '📱 Client' : '💬 Coach'}</span>
-                                <span className="text-[10px] opacity-70">{formatDate(m.dateAdded || m.createdAt || m.date)}</span>
-                              </div>
-                              <div className="text-sm whitespace-pre-wrap">{m.body || m.message || m.text || '[Attachment]'}</div>
+                <div className="flex-1 p-4 overflow-y-auto space-y-3">
+                  {loadingGhl ? (
+                    <div className="text-xs text-slate-400 text-center py-8">Loading...</div>
+                  ) : ghlData.messages.length === 0 ? (
+                    <div className="text-xs text-slate-400 text-center py-8">No messages found</div>
+                  ) : (
+                    <>
+                      {[...ghlData.messages].reverse().map((m, idx) => {
+                        const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
+                        return (
+                          <div
+                            key={idx}
+                            className={`max-w-[80%] p-3.5 rounded-2xl text-xs ${
+                              isClient
+                                ? 'bg-slate-800 text-slate-200 border border-slate-700 mr-auto'
+                                : 'bg-blue-600 text-white ml-auto'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-1 gap-4">
+                              <span className="font-bold">{isClient ? '📱 Client' : '💬 Coach'}</span>
+                              <span className="text-[10px] opacity-70">
+                                {formatDate(m.dateAdded || m.createdAt || m.date)}
+                              </span>
                             </div>
-                          );
-                        })}
-                    </div>
-                    <div className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
-                      <input type="text" value={outgoingSms} onChange={(e) => setOutgoingSms(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendSms()} placeholder={`Text ${selectedClient.name}...`} className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500" />
-                      <button onClick={handleSendSms} disabled={isSendingSms || !outgoingSms.trim()} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl">{isSendingSms ? 'Sending...' : 'Send SMS'}</button>
-                    </div>
+                            <div className="text-sm whitespace-pre-wrap">
+                              {m.body || m.message || m.text || '[Attachment]'}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div ref={messagesEndRef} />
+                    </>
+                  )}
+                  <div className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
+                    <input
+                      type="text"
+                      value={outgoingSms}
+                      onChange={(e) => setOutgoingSms(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendSms()}
+                      placeholder={`Text ${selectedClient.name}...`}
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <button
+                      onClick={handleSendSms}
+                      disabled={isSendingSms || !outgoingSms.trim()}
+                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl"
+                    >
+                      {isSendingSms ? 'Sending...' : 'Send SMS'}
+                    </button>
                   </div>
+                </div>
+                
                 )}
 
                 {/* NOTES TAB */}
@@ -735,16 +779,75 @@ export default function Dashboard() {
             <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-white">GHL Contact Lookup</h3><button onClick={() => setIsGhlLookupOpen(false)} className="text-slate-400 hover:text-white text-xl">×</button></div>
             <div className="flex gap-2">
               <input type="text" value={ghlSearchQuery} onChange={(e) => setGhlSearchQuery(e.target.value)} placeholder="Search GHL..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500" />
-              <button onClick={async () => { setIsSearchingGhl(true); try { const res = await fetch(`https://searchghlcontacts-mllpdtijza-uc.a.run.app?query=${encodeURIComponent(ghlSearchQuery.trim())}`); const data = await res.json(); setGhlSearchResults(data.success ? data.contacts || [] : []); } catch (e) { console.error(e); } finally { setIsSearchingGhl(false); } }} disabled={isSearchingGhl} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl text-white disabled:opacity-50">{isSearchingGhl ? '...' : 'Search'}</button>
+              <button
+  onClick={async () => {
+    if (!ghlSearchQuery.trim()) return alert('Enter a search term');
+    setIsSearchingGhl(true);
+    setGhlSearchResults([]);
+    try {
+      const res = await fetch(
+        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(ghlSearchQuery.trim())}`
+      );
+      const data = await res.json();
+      console.log('GHL Search response:', data);
+      if (data.success && Array.isArray(data.contacts)) {
+        setGhlSearchResults(data.contacts);
+        if (data.contacts.length === 0) alert('No contacts found for that search.');
+      } else {
+        alert('Search failed: ' + (data.error || 'Unknown error'));
+        setGhlSearchResults([]);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Network error: ' + e.message);
+    } finally {
+      setIsSearchingGhl(false);
+    }
+  }}
+  disabled={isSearchingGhl}
+  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl text-white disabled:opacity-50"
+>
+  {isSearchingGhl ? '...' : 'Search'}
+</button>
             </div>
-            <div className="max-h-60 overflow-y-auto space-y-2">
-              {ghlSearchResults.map((contact) => (
-                <div key={contact.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center text-xs">
-                  <div><div className="font-bold text-white">{contact.name}</div><div className="text-slate-400 text-[11px]">{contact.email || contact.phone}</div></div>
-                  <button onClick={async () => { try { const docRef = await addDoc(collection(db, 'clients'), { name: contact.name, email: contact.email || '', phone: contact.phone || '', ghlContactId: contact.id, coach: '', createdAt: new Date() }); setSelectedClient({ id: docRef.id, name: contact.name, email: contact.email, phone: contact.phone, ghlContactId: contact.id }); setIsGhlLookupOpen(false); } catch (e) { alert(e.message); } }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-[11px] rounded-lg">Import</button>
-                </div>
-              ))}
-            </div>
+         <div className="max-h-60 overflow-y-auto space-y-2">
+  {ghlSearchResults.map((contact) => (
+    <div key={contact.id} className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center text-xs">
+      <div>
+        <div className="font-bold text-white">{contact.name}</div>
+        <div className="text-slate-400 text-[11px]">{contact.email || contact.phone}</div>
+      </div>
+      <button
+        onClick={async () => {
+          try {
+            const cleanName = toTitleCase(contact.name);
+            const docRef = await addDoc(collection(db, 'clients'), {
+              name: cleanName,
+              email: contact.email || '',
+              phone: contact.phone || '',
+              ghlContactId: contact.id,
+              coach: '',
+              createdAt: new Date(),
+            });
+            setSelectedClient({
+              id: docRef.id,
+              name: cleanName,
+              email: contact.email,
+              phone: contact.phone,
+              ghlContactId: contact.id,
+            });
+            setIsGhlLookupOpen(false);
+          } catch (e) {
+            alert(e.message);
+          }
+        }}
+        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-[11px] rounded-lg"
+      >
+        Import
+      </button>
+    </div>
+  ))}
+</div>
           </div>
         </div>
       )}
