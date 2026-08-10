@@ -1,6 +1,13 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
+const { defineSecret } = require("firebase-functions/params");
+const { google } = require("googleapis");
+
+const GOOGLE_SA_KEY = defineSecret("GOOGLE_SA_KEY"); // use the secret name you set
+const CALENDAR_TIMEZONE = "America/New_York";
+
 if (!admin.apps.length) {
   admin.initializeApp();
 }
@@ -502,3 +509,203 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
 exports.fetchInbodyScansFromApi = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
   return res.status(200).json({ success: true, message: "Webhook sync active." });
 });
+
+// ---------- Google Calendar helpers ----------
+function getCalendarClient(saKeyJson, coachEmail) {
+  const credentials = typeof saKeyJson === "string" ? JSON.parse(saKeyJson) : saKeyJson;
+  const auth = new google.auth.JWT({
+    email: credentials.client_email,
+    key: credentials.private_key,
+    scopes: [
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/calendar.events",
+    ],
+    subject: coachEmail, // impersonate the coach
+  });
+  return google.calendar({ version: "v3", auth });
+}
+
+function buildEventFromBooking(booking) {
+  const date = booking.date; // YYYY-MM-DD
+  const time = booking.time || "10:00"; // HH:MM
+  const duration = Number(booking.durationMinutes) || 30;
+
+  // Compute end time in local clock (no Date/UTC)
+  const [h, m] = time.split(":").map(Number);
+  const startTotal = h * 60 + m;
+  const endTotal = startTotal + duration;
+  const endH = Math.floor(endTotal / 60) % 24;
+  const endM = endTotal % 60;
+  const dayOffset = Math.floor(endTotal / (24 * 60));
+
+  let endDate = date;
+  if (dayOffset > 0) {
+    const d = new Date(date + "T12:00:00"); // noon avoids DST edge cases
+    d.setDate(d.getDate() + dayOffset);
+    endDate = d.toISOString().slice(0, 10);
+  }
+
+  const endTime = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+
+  const title = `${booking.appointmentTypeName || "Appointment"} — ${booking.clientName || "Client"}`;
+  const description = [
+    booking.roomName ? `Room: ${booking.roomName}` : null,
+    booking.notes ? `Notes: ${booking.notes}` : null,
+    booking.clientName ? `Client: ${booking.clientName}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    summary: title,
+    description,
+    start: {
+      dateTime: `${date}T${time}:00`,
+      timeZone: CALENDAR_TIMEZONE, // America/New_York
+    },
+    end: {
+      dateTime: `${endDate}T${endTime}:00`,
+      timeZone: CALENDAR_TIMEZONE,
+    },
+  };
+}
+
+async function resolveCoachEmail(booking) {
+  // Prefer email stored on the booking
+  if (booking.coachEmail) return booking.coachEmail;
+
+  // Fallback: look up users by coach name
+  if (!booking.coach) return null;
+  const snap = await db.collection("users").get();
+  const coachName = String(booking.coach).toLowerCase();
+  for (const doc of snap.docs) {
+    const u = doc.data();
+    const name = String(u.name || "").toLowerCase();
+    const email = u.email || "";
+    if (
+      email &&
+      (name === coachName ||
+        name.includes(coachName) ||
+        coachName.includes(name) ||
+        email.toLowerCase().includes(coachName.split(" ")[0]))
+    ) {
+      return email;
+    }
+  }
+  return null;
+}
+
+// CREATE
+exports.syncBookingToGoogleCalendar = onDocumentCreated(
+  {
+    document: "bookings/{bookingId}",
+    secrets: [GOOGLE_SA_KEY],
+  },
+  async (event) => {
+    const booking = event.data.data();
+    const bookingId = event.params.bookingId;
+
+    const coachEmail = await resolveCoachEmail(booking);
+    if (!coachEmail) {
+      console.log("No coach email for booking", bookingId);
+      return;
+    }
+
+    try {
+      const calendar = getCalendarClient(GOOGLE_SA_KEY.value(), coachEmail);
+      const resource = buildEventFromBooking(booking);
+      const res = await calendar.events.insert({
+        calendarId: "primary",
+        resource,
+      });
+
+      await db.collection("bookings").doc(bookingId).update({
+        googleEventId: res.data.id,
+        coachEmail,
+        googleSyncAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log("Created Google event", res.data.id, "for", coachEmail);
+    } catch (err) {
+      console.error("Google Calendar create failed:", err.message);
+    }
+  }
+);
+
+// UPDATE
+exports.updateBookingOnGoogleCalendar = onDocumentUpdated(
+  {
+    document: "bookings/{bookingId}",
+    secrets: [GOOGLE_SA_KEY],
+  },
+  async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    const bookingId = event.params.bookingId;
+
+    // Avoid loop when we only write googleEventId
+    if (
+      before.googleEventId === after.googleEventId &&
+      before.date === after.date &&
+      before.time === after.time &&
+      before.durationMinutes === after.durationMinutes &&
+      before.clientName === after.clientName &&
+      before.appointmentTypeName === after.appointmentTypeName
+    ) {
+      return;
+    }
+
+    const coachEmail = after.coachEmail || (await resolveCoachEmail(after));
+    if (!coachEmail) return;
+
+    try {
+      const calendar = getCalendarClient(GOOGLE_SA_KEY.value(), coachEmail);
+      const resource = buildEventFromBooking(after);
+
+      if (after.googleEventId) {
+        await calendar.events.patch({
+          calendarId: "primary",
+          eventId: after.googleEventId,
+          resource,
+        });
+        console.log("Updated Google event", after.googleEventId);
+      } else {
+        const res = await calendar.events.insert({
+          calendarId: "primary",
+          resource,
+        });
+        await db.collection("bookings").doc(bookingId).update({
+          googleEventId: res.data.id,
+          coachEmail,
+        });
+      }
+    } catch (err) {
+      console.error("Google Calendar update failed:", err.message);
+    }
+  }
+);
+
+// DELETE
+exports.deleteBookingOnGoogleCalendar = onDocumentDeleted(
+  {
+    document: "bookings/{bookingId}",
+    secrets: [GOOGLE_SA_KEY],
+  },
+  async (event) => {
+    const booking = event.data.data();
+    if (!booking?.googleEventId) return;
+
+    const coachEmail = booking.coachEmail || (await resolveCoachEmail(booking));
+    if (!coachEmail) return;
+
+    try {
+      const calendar = getCalendarClient(GOOGLE_SA_KEY.value(), coachEmail);
+      await calendar.events.delete({
+        calendarId: "primary",
+        eventId: booking.googleEventId,
+      });
+      console.log("Deleted Google event", booking.googleEventId);
+    } catch (err) {
+      console.error("Google Calendar delete failed:", err.message);
+    }
+  }
+);

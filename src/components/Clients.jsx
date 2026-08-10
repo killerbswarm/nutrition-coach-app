@@ -253,10 +253,8 @@ export default function Clients({ focus, onFocusConsumed }) {
 
   const roleFilteredClients = clients.filter((c) => {
     if (currentUserRole === 'Owner') return true;
-    const coachName = (currentUser?.displayName || currentUser?.email || '').toLowerCase();
-    const assigned = (c.coach || '').toLowerCase();
-    if (!coachName) return false;
-    return assigned === coachName || assigned.includes(coachName.split('@')[0]);
+    // Coach: only clients assigned to this login
+    return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
   });
 
   const filteredClients = roleFilteredClients.filter((c) => {
@@ -322,23 +320,50 @@ export default function Clients({ focus, onFocusConsumed }) {
   })();
     const openAddClient = () => {
     setEditingClient(null);
-    setClientForm({ name: '', email: '', phone: '', coach: '', ghlContactId: '' });
+    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '' });
     setIsClientModalOpen(true);
   };
   const openEditClient = (c) => {
     setEditingClient(c);
-    setClientForm({ name: c.name || '', email: c.email || '', phone: c.phone || '', coach: c.coach || '', ghlContactId: c.ghlContactId || c.ghlId || '' });
+    setClientForm({
+  name: c.name || '',
+  email: c.email || '',
+  phone: c.phone || '',
+  coach: c.coach || '',
+  coachId: c.coachId || '',
+  ghlContactId: c.ghlContactId || c.ghlId || '',
+});
     setIsClientModalOpen(true);
   };
   const handleSaveClient = async () => {
     if (!clientForm.name.trim()) return alert('Name is required');
     try {
-      const payload = { name: clientForm.name.trim(), email: clientForm.email.trim(), phone: clientForm.phone.trim(), coach: clientForm.coach.trim(), ghlContactId: clientForm.ghlContactId.trim() };
-      if (editingClient) await updateDoc(doc(db, 'clients', editingClient.id), { ...payload, updatedAt: new Date() });
-      else await addDoc(collection(db, 'clients'), { ...payload, status: 'active', createdAt: new Date() });
+      const payload = {
+        name: clientForm.name.trim(),
+        email: clientForm.email.trim(),
+        phone: clientForm.phone.trim(),
+        coach: clientForm.coach.trim(),
+        coachId: clientForm.coachId || '',
+        ghlContactId: clientForm.ghlContactId.trim(),
+      };
+      if (editingClient) {
+        await updateDoc(doc(db, 'clients', editingClient.id), {
+          ...payload,
+          updatedAt: new Date(),
+        });
+      } else {
+        await addDoc(collection(db, 'clients'), {
+          ...payload,
+          status: 'active',
+          createdAt: new Date(),
+        });
+      }
       setIsClientModalOpen(false);
-    } catch (err) { alert('Failed to save: ' + err.message); }
+    } catch (err) {
+      alert('Failed to save: ' + err.message);
+    }
   };
+
   const handleDeleteClient = async (c) => {
     if (!window.confirm(`Delete "${c.name}"?`)) return;
     try {
@@ -675,10 +700,26 @@ export default function Clients({ focus, onFocusConsumed }) {
               <div><label className="text-xs text-slate-400 font-medium">Phone</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Assigned Coach</label>
-                <select value={clientForm.coach} onChange={(e) => setClientForm({ ...clientForm, coach: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-                  <option value="">Unassigned</option>
-                  {coaches.map((c) => <option key={c.id} value={c.name || c.email}>{c.name || c.email}</option>)}
-                </select>
+               <select
+  value={clientForm.coachId || ''}
+  onChange={(e) => {
+    const id = e.target.value;
+    const coachUser = coaches.find((c) => c.id === id);
+    setClientForm({
+      ...clientForm,
+      coachId: id,
+      coach: coachUser ? (coachUser.name || coachUser.email || '') : '',
+    });
+  }}
+  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+>
+  <option value="">Unassigned</option>
+  {coaches.map((c) => (
+    <option key={c.id} value={c.id}>
+      {c.name || c.email}
+    </option>
+  ))}
+</select>
               </div>
               <div><label className="text-xs text-slate-400 font-medium">GHL Contact ID</label><input type="text" value={clientForm.ghlContactId} onChange={(e) => setClientForm({ ...clientForm, ghlContactId: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
             </div>

@@ -264,6 +264,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       return;
     }
 
+    const client = clients.find((c) => c.id === newBooking.clientId);
+    const coachName = newBooking.coach || client?.coach || '';
+
     const payload = {
       clientId: newBooking.clientId || '',
       clientName: newBooking.clientName.trim(),
@@ -276,6 +279,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       time: newBooking.time,
       durationMinutes: Number(newBooking.durationMinutes),
       notes: newBooking.notes || '',
+      coach: coachName,
+      coachEmail: newBooking.coachEmail || '',
       updatedAt: new Date(),
     };
 
@@ -301,6 +306,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         time: '10:00',
         durationMinutes: appointmentTypes[0]?.durationMinutes || 15,
         notes: '',
+        coach: '',
+        coachEmail: '',
       });
     } catch (err) {
       console.error('Save booking error:', err);
@@ -329,6 +336,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       time: booking.time || '10:00',
       durationMinutes: booking.durationMinutes || 15,
       notes: booking.notes || '',
+      coach: booking.coach || '',
+      coachEmail: booking.coachEmail || '',
     });
     setIsAddBookingOpen(true);
   };
@@ -337,6 +346,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     setIsAddBookingOpen(false);
     setEditingBooking(null);
   };
+  
     // ---------------------------------------------------------------------------
   // 5. ROOM CRUD HANDLERS
   // ---------------------------------------------------------------------------

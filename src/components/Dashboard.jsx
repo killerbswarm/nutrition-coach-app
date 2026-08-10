@@ -1,10 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  collection,
-  onSnapshot,
-  query,
-  orderBy,
-} from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import Clients from './Clients';
@@ -61,6 +56,21 @@ export default function Dashboard() {
   const [loadingDashMessages, setLoadingDashMessages] = useState(false);
   const [clientsFocus, setClientsFocus] = useState(null);
   const [scansFocusId, setScansFocusId] = useState(null);
+  const [profileName, setProfileName] = useState('');
+
+  useEffect(() => {
+  if (!currentUser?.uid) {
+    setProfileName('');
+    return;
+  }
+  const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
+    if (snap.exists()) {
+      const d = snap.data();
+      setProfileName(d.name || d.displayName || '');
+    }
+  });
+  return () => unsub();
+}, [currentUser?.uid]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
@@ -91,10 +101,7 @@ export default function Dashboard() {
   const myClients = clients.filter((c) => {
     if ((c.status || 'active') !== 'active') return false;
     if (currentUserRole === 'Owner') return true;
-    const coachName = (currentUser?.displayName || currentUser?.email || '').toLowerCase();
-    const assigned = (c.coach || '').toLowerCase();
-    if (!coachName) return false;
-    return assigned === coachName || assigned.includes(coachName.split('@')[0]);
+    return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
   });
 
   const myClientIds = new Set(myClients.map((c) => c.id));
@@ -165,7 +172,8 @@ export default function Dashboard() {
             const isActive = (c.status || 'active') === 'active';
             const hasGhl = id && id !== 'N/A' && !String(id).startsWith('dummy');
             if (!isActive || !hasGhl) return false;
-            if (currentUserRole === 'Owner' || !coachName) return true;
+            if (currentUserRole === 'Owner' || !currentUser?.uid) return true;
+            return c.coachId === currentUser.uid;
             const assigned = (c.coach || '').toLowerCase();
             return assigned === coachName.toLowerCase() || assigned.includes(coachName.toLowerCase().split('@')[0]);
           })
@@ -249,15 +257,34 @@ export default function Dashboard() {
             )}
           </nav>
         </div>
-        <div className="pt-4 border-t border-slate-800 px-2 space-y-2">
-          <div className="text-xs text-slate-400">
-            Logged in as: <span className="font-semibold text-slate-200">{currentUserRole}</span>
-          </div>
-          {currentUser?.email && <div className="text-[10px] text-slate-500 truncate">{currentUser.email}</div>}
-          <button onClick={() => logout()} className="w-full mt-1 px-3 py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-300 hover:bg-red-600/20 hover:text-red-400 transition-colors">
-            Log out
-          </button>
-        </div>
+     <div className="pt-4 border-t border-slate-800 px-2 space-y-2">
+  <div className="flex items-center gap-2 flex-wrap">
+ <span className="text-sm font-semibold text-white truncate">
+  {profileName ||
+    currentUser?.displayName ||
+    currentUser?.email?.split('@')[0] ||
+    'User'}
+</span>
+    <span
+      className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+        currentUserRole === 'Owner'
+          ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+          : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+      }`}
+    >
+      {currentUserRole}
+    </span>
+  </div>
+  {currentUser?.email && (
+    <div className="text-[10px] text-slate-500 truncate">{currentUser.email}</div>
+  )}
+  <button
+    onClick={() => logout()}
+    className="w-full mt-1 px-3 py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-300 hover:bg-red-600/20 hover:text-red-400 transition-colors"
+  >
+    Log out
+  </button>
+</div>
       </aside>
 
       {currentNavView === 'dashboard' && (
