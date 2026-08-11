@@ -709,3 +709,229 @@ exports.deleteBookingOnGoogleCalendar = onDocumentDeleted(
     }
   }
 );
+
+// =========================================================================
+// Notify coach when an active client texts the gym
+// =========================================================================
+exports.notifyCoachOnInboundSms = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
+  try {
+    // GHL may send GET challenge or POST JSON
+    if (req.method === "GET") {
+      return res.status(200).send("ok");  
+    }
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    const body = req.body || {};
+
+const idKeys = Object.keys(body).filter(
+  (k) => /id|email|phone|name|message|body|text/i.test(k)
+);
+console.log(
+  "ID-ISH FIELDS",
+  JSON.stringify(
+    {
+      id: body.id,
+      contactId: body.contactId,
+      contact_id: body.contact_id,
+      email: body.email,
+      phone: body.phone,
+      phone_number: body.phone_number,
+      full_name: body.full_name,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      first_name: body.first_name,
+      last_name: body.last_name,
+      message: body.message,
+      idKeys,
+    },
+    null,
+    0
+  )
+);
+    // GHL webhook field names vary — cover common ones
+      const contactId = String(
+      body.contactId ||
+      body.contact_id ||
+      body.contact?.id ||
+      body.contact?.contactId ||
+      body.data?.contactId ||
+      body.data?.contact_id ||
+      // only use body.id if nothing else exists — it is often message/conversation id
+      ""
+    ).trim();
+
+    console.log("Resolved contactId", contactId || "(empty)", "body.id=", body.id);
+
+    const contactName =
+      body.full_name ||
+      body.fullName ||
+      body.contact_name ||
+      body.name ||
+      [body.firstName || body.first_name, body.lastName || body.last_name].filter(Boolean).join(" ") ||
+      "A client";
+      const rawMsg =
+      body.message ||
+      body.body ||
+      body.text ||
+      body.msg ||
+      body.messageBody ||
+      body.Message ||
+      body.conversation?.message ||
+      body.data?.message ||
+      "";
+
+    let messagePreview = "";
+    if (typeof rawMsg === "string") {
+      messagePreview = rawMsg;
+    } else if (rawMsg && typeof rawMsg === "object") {
+      messagePreview =
+        rawMsg.body ||
+        rawMsg.text ||
+        rawMsg.message ||
+        rawMsg.content ||
+        rawMsg.msg ||
+        "";
+      if (typeof messagePreview !== "string") {
+        messagePreview = "";
+      }
+    }
+
+    messagePreview = String(messagePreview || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+
+    if (!contactId) {
+      console.log("notifyCoachOnInboundSms: no contactId", JSON.stringify(body).slice(0, 500));
+      return res.status(200).json({ ok: true, skipped: "no contactId" });
+    }
+
+    // Find client(s) with this GHL id
+    const clientsSnap = await db
+      .collection("clients")
+      .where("ghlContactId", "==", String(contactId))
+      .limit(5)
+      .get();
+
+    if (clientsSnap.empty) {
+      console.log("No client for GHL contact", contactId);
+      return res.status(200).json({ ok: true, skipped: "no client" });
+    }
+
+    const results = [];
+
+    for (const clientDoc of clientsSnap.docs) {
+      const client = { id: clientDoc.id, ...clientDoc.data() };
+      const status = client.status || "active";
+      if (status !== "active") {
+        results.push({ clientId: client.id, skipped: "inactive" });
+        continue;
+      }
+
+      if (!client.coachId) {
+        results.push({ clientId: client.id, skipped: "no coachId" });
+        continue;
+      }
+
+      const coachDoc = await db.collection("users").doc(client.coachId).get();
+      if (!coachDoc.exists) {
+        results.push({ clientId: client.id, skipped: "coach not found" });
+        continue;
+      }
+
+      const coach = coachDoc.data();
+      const coachPhone = String(coach.phone || "").replace(/\D/g, "");
+      if (coachPhone.length < 10) {
+        results.push({ clientId: client.id, skipped: "coach has no phone" });
+        continue;
+      }
+
+      // Find or create GHL contact for the coach so we can SMS them
+      let coachGhlId = coach.ghlContactId || null;
+
+      if (!coachGhlId) {
+        // Search by phone
+        const searchRes = await fetch(
+          `https://services.leadconnectorhq.com/contacts/?locationId=${GHL_LOCATION_ID}&query=${encodeURIComponent(coachPhone)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${GHL_API_TOKEN}`,
+              Version: GHL_API_VERSION,
+            },
+          }
+        );
+        const searchData = await searchRes.json().catch(() => ({}));
+        const found = searchData?.contacts?.[0] || searchData?.contact;
+        if (found?.id) {
+          coachGhlId = found.id;
+        } else {
+          // Create contact
+          const createRes = await fetch(`https://services.leadconnectorhq.com/contacts/`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${GHL_API_TOKEN}`,
+              Version: GHL_API_VERSION,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              locationId: GHL_LOCATION_ID,
+              firstName: (coach.name || "Coach").split(" ")[0],
+              lastName: (coach.name || "").split(" ").slice(1).join(" ") || "",
+              email: coach.email || "",
+              phone: coachPhone,
+            }),
+          });
+          const createData = await createRes.json().catch(() => ({}));
+          coachGhlId = createData?.contact?.id || createData?.id || null;
+        }
+
+        if (coachGhlId) {
+          await db.collection("users").doc(client.coachId).update({
+            ghlContactId: coachGhlId,
+            phone: coach.phone || coachPhone,
+          });
+        }
+      }
+
+      if (!coachGhlId) {
+        results.push({ clientId: client.id, skipped: "could not resolve coach GHL contact" });
+        continue;
+      }
+
+      const clientLabel = client.name || contactName || "A client";
+      const smsBody = messagePreview
+        ? `${clientLabel}, Your nutrition client just messaged the gym: "${String(messagePreview).slice(0, 120)}"`
+        : `${clientLabel}, Your nutrition client just messaged the gym.`;
+
+      const sendRes = await fetch(`https://services.leadconnectorhq.com/conversations/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${GHL_API_TOKEN}`,
+          Version: GHL_API_VERSION,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "SMS",
+          contactId: coachGhlId,
+          message: smsBody,
+        }),
+      });
+
+      const sendData = await sendRes.json().catch(() => ({}));
+      if (!sendRes.ok) {
+        console.error("SMS to coach failed", sendData);
+        results.push({ clientId: client.id, error: sendData.message || "send failed" });
+      } else {
+        console.log("Notified coach", coach.email, "about", clientLabel);
+        results.push({ clientId: client.id, notified: true, coachEmail: coach.email });
+      }
+    }
+
+    return res.status(200).json({ ok: true, results });
+  } catch (err) {
+    console.error("notifyCoachOnInboundSms error", err);
+    return res.status(500).json({ error: err.message });
+  }
+});

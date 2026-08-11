@@ -12,6 +12,8 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../context/AuthContext';
+
 
 // Helper: Convert "HH:MM" to total minutes from midnight
 const timeToMinutes = (timeStr) => {
@@ -20,11 +22,21 @@ const timeToMinutes = (timeStr) => {
   return hours * 60 + minutes;
 };
 
+const isPastAppointment = (appt) => {
+  if (!appt?.date) return false;
+  const time = appt.time && /^\d{1,2}:\d{2}/.test(appt.time) ? appt.time : '23:59';
+  const when = new Date(`${appt.date}T${time}`);
+  if (isNaN(when.getTime())) return false;
+  return when.getTime() < Date.now();
+};
+
 export default function Calendar({ clients = [], ghlAppointments = [], selectedClient = null }) {
   // State for DB Collections
   const [bookings, setBookings] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [appointmentTypes, setAppointmentTypes] = useState([]);
+  
+  const { isOwner } = useAuth();
 
   // UI Filter & Modals
   const [selectedRoomFilter, setSelectedRoomFilter] = useState('ALL');
@@ -453,29 +465,34 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsManageRoomsOpen(true)}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
-          >
-            ⚙️ Manage Rooms ({rooms.length})
-          </button>
+       {isOwner && (
+    <>
+      <button
+        onClick={() => setIsManageRoomsOpen(true)}
+        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
+      >
+        ⚙️ Manage Rooms ({rooms.length})
+      </button>
+      <button
+        onClick={() => setIsManageTypesOpen(true)}
+        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
+      >
+        ⚙️ Manage Types ({appointmentTypes.length})
+      </button>
+    </>
+  )}
 
-          <button
-            onClick={() => setIsManageTypesOpen(true)}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
-          >
-            ⚙️ Manage Appt Types ({appointmentTypes.length})
-          </button>
-
-          <button
-            onClick={() => {
-              setEditingBooking(null);
-              setIsAddBookingOpen(true);
-            }}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 font-bold text-xs rounded-xl shadow-lg transition-colors text-white"
-          >
-            ➕ Add New Booking
-          </button>
+    {/* Add New Booking stays visible for coaches */}
+<button
+  type="button"
+  onClick={() => {
+    setEditingBooking(null);
+    setIsAddBookingOpen(true);
+  }}
+  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-colors"
+>
+  + Add New Booking
+</button>
         </div>
       </div>
 
@@ -511,69 +528,89 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
           </div>
 
           {filteredAppointments.length === 0 ? (
-            <div className="text-center py-12 text-xs text-slate-500">
-              No appointments scheduled. Click "Add New Booking" to create one.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredAppointments.map((appt) => (
-                <div
-                  key={appt.id}
-                  className="p-4 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl flex justify-between items-center transition-all"
-                >
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-sm text-white">{appt.appointmentTypeName}</span>
-                      <span
-                        className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                          appt.source === 'GHL'
-                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                            : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                        }`}
-                      >
-                        {appt.source}
-                      </span>
-                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                        {appt.roomName}
-                      </span>
-                      <span className="px-2 py-0.5 text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full">
-                        {appt.durationMinutes} min
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-400 mt-1">
-                      Member: <span className="text-slate-200 font-medium">{appt.clientName}</span>
-                    </div>
-                    {appt.notes && <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>}
-                  </div>
+  <div className="text-center py-12 text-xs text-slate-500">
+    No appointments scheduled. Click "Add New Booking" to create one.
+  </div>
+) : (
+  <div className="space-y-3">
+    {filteredAppointments.map((appt) => {
+      const past = isPastAppointment(appt);
+      return (
+        <div
+          key={appt.id}
+          className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${
+            past
+              ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
+              : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {past ? (
+                <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
+                  Past
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+                  Upcoming
+                </span>
+              )}
 
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="text-xs text-blue-400 font-bold">{appt.date}</div>
-                      <div className="text-[11px] text-slate-400">{appt.time}</div>
-                    </div>
-                    {appt.source === 'Local' && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => openEditBooking(appt)}
-                          className="px-2.5 py-1.5 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
-                          title="Edit Booking"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteBooking(appt.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                          title="Delete Booking"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+              <span className={`font-bold text-sm ${past ? 'text-slate-400 line-through' : 'text-white'}`}>
+                {appt.appointmentTypeName || 'Appointment'}
+              </span>
+
+              {appt.roomName && (
+                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                  {appt.roomName}
+                </span>
+              )}
+
+              <span className="px-2 py-0.5 text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full">
+                {appt.durationMinutes || 15} min
+              </span>
             </div>
-          )}
+
+            <div className={`text-xs mt-1 ${past ? 'text-slate-500' : 'text-slate-400'}`}>
+              Member:{' '}
+              <span className={past ? 'text-slate-500' : 'text-slate-200 font-medium'}>
+                {appt.clientName || '—'}
+              </span>
+            </div>
+
+            {appt.notes && (
+              <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
+              <div className="font-semibold">{appt.date}</div>
+              <div>{appt.time}</div>
+            </div>
+
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => openEditBooking(appt)}
+                className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteBooking(appt.id)}
+                className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+)}
         </div>
 
         {/* ROOM STATUS SIDEBAR */}
@@ -601,9 +638,13 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
           )}
         </div>
       </div>
+
+      
+
             {/* ========================================================================= */}
       {/* MODAL 1: ADD / EDIT BOOKING */}
       {/* ========================================================================= */}
+      
       {isAddBookingOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl my-8">
@@ -794,7 +835,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       {/* ========================================================================= */}
       {/* MODAL 2: MANAGE ROOMS */}
       {/* ========================================================================= */}
-      {isManageRoomsOpen && (
+      {isOwner && isManageRoomsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -876,7 +917,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       {/* ========================================================================= */}
       {/* MODAL 3: MANAGE APPOINTMENT TYPES */}
       {/* ========================================================================= */}
-      {isManageTypesOpen && (
+      {isOwner && isManageTypesOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -956,6 +997,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   </div>
                 </div>
               ))}
+              
             </div>
           </div>
         </div>
