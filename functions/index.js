@@ -367,25 +367,33 @@ exports.sendGhlSms = onRequest({ cors: true, invoker: "public" }, async (req, re
   try {
     if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
-    const { contactId, message } = req.body;
+    const { contactId, message, attachments } = req.body;
 
     if (!contactId || !message) {
       return res.status(400).json({ error: "Missing contactId or message text" });
     }
 
-    const response = await fetch(`https://services.leadconnectorhq.com/conversations/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GHL_API_TOKEN}`,
-        Version: GHL_API_VERSION,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        type: "SMS",
-        contactId: contactId,
-        message: message,
-      }),
-    });
+        const payload = {
+      type: "SMS",
+      contactId,
+      message: message || "",
+    };
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      payload.attachments = attachments;
+    }
+
+    const response = await fetch(
+      "https://services.leadconnectorhq.com/conversations/messages",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${GHL_API_TOKEN}`,
+          Version: GHL_API_VERSION,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
 
     const data = await response.json();
 

@@ -16,6 +16,52 @@ import AdminInBodyUploadModal from './AdminInBodyUploadModal';
 import InBodyCompareModal from './InBodyCompareModal';
 import { useAuth } from '../context/AuthContext';
 
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+const handleSendSms = async () => {
+  if (!selectedClient?.ghlContactId) {
+    return alert('Client has no GHL Contact ID');
+  }
+  if (!smsText.trim() && !smsFile) return;
+
+  setIsSendingSms(true);
+  try {
+    let attachmentUrl = null;
+    if (smsFile) {
+      const storage = getStorage();
+      const path = `sms-attachments/${selectedClient.id}/${Date.now()}_${smsFile.name}`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, smsFile);
+      attachmentUrl = await getDownloadURL(storageRef);
+    }
+
+    const res = await fetch(
+      'https://us-central1-swarm-nutrition-app.cloudfunctions.net/sendGhlSms',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId: selectedClient.ghlContactId,
+          message: smsText.trim() || (attachmentUrl ? ' ' : ''),
+          attachments: attachmentUrl ? [attachmentUrl] : [],
+        }),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      alert(data.error || 'Send failed');
+      return;
+    }
+    setSmsText('');
+    setSmsFile(null);
+    // refresh messages if you have a loader
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    setIsSendingSms(false);
+  }
+};
+
 const parseScanDate = (dateVal) => {
   if (!dateVal) return null;
   if (typeof dateVal === 'object' && dateVal.seconds) return new Date(dateVal.seconds * 1000);
@@ -151,7 +197,8 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
-  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '' });
+  const [isFindingGhl, setIsFindingGhl] = useState(false);
+  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active', });
   const [coaches, setCoaches] = useState([]);
   const [habits, setHabits] = useState([]);
   const [clientHabits, setClientHabits] = useState([]);
@@ -162,6 +209,9 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [assignForm, setAssignForm] = useState({ habitId: '', weeksAssigned: 4, startDate: new Date().toISOString().split('T')[0] });
   const [showUnlinkedScans, setShowUnlinkedScans] = useState(false);
   const messagesEndRef = useRef(null);
+  const [smsExpanded, setSmsExpanded] = useState(false);
+  const [smsFile, setSmsFile] = useState(null);
+  const [smsText, setSmsText] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
@@ -208,14 +258,14 @@ export default function Clients({ focus, onFocusConsumed }) {
     return () => unsub();
   }, [selectedClient]);
   useEffect(() => {
-  if (!focus?.clientId || clients.length === 0) return;
-  const match = clients.find((c) => c.id === focus.clientId);
-  if (match) {
-    setSelectedClient(match);
-    if (focus.tab) setActiveTab(focus.tab);
-  }
-  if (onFocusConsumed) onFocusConsumed();
-}, [focus, clients]);
+    if (!focus?.clientId || clients.length === 0) return;
+    const match = clients.find((c) => c.id === focus.clientId);
+    if (match) {
+      setSelectedClient(match);
+      if (focus.tab) setActiveTab(focus.tab);
+    }
+    if (onFocusConsumed) onFocusConsumed();
+  }, [focus, clients]);
 
   useEffect(() => {
     if (!selectedClient) return;
@@ -318,23 +368,119 @@ export default function Clients({ focus, onFocusConsumed }) {
     });
     return Object.values(groups).sort((a, b) => b.scans.length - a.scans.length);
   })();
-    const openAddClient = () => {
+  const openAddClient = () => {
     setEditingClient(null);
-    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '' });
+    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '', status: 'active' });
     setIsClientModalOpen(true);
   };
   const openEditClient = (c) => {
     setEditingClient(c);
     setClientForm({
-  name: c.name || '',
-  email: c.email || '',
-  phone: c.phone || '',
-  coach: c.coach || '',
-  coachId: c.coachId || '',
-  ghlContactId: c.ghlContactId || c.ghlId || '',
-});
+      name: c.name || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      coach: c.coach || '',
+      coachId: c.coachId || '',
+      ghlContactId: c.ghlContactId || c.ghlId || '',
+      status: c.status || 'active',
+    });
     setIsClientModalOpen(true);
   };
+  const handleFindGhlInfo = async () => {
+    const q = (clientForm.phone || clientForm.email || clientForm.name || '').trim();
+    if (!q) return alert('Enter a phone, email, or name first');
+
+    setIsFindingGhl(true);
+    try {
+      const res = await fetch(
+        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(q)}`
+      );
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.contacts) || data.contacts.length === 0) {
+        alert('No GHL contacts found.');
+        return;
+      }
+
+      const phoneDigits = String(clientForm.phone || '').replace(/\D/g, '');
+      let match = data.contacts[0];
+      if (phoneDigits.length >= 10) {
+        const exact = data.contacts.find((c) => {
+          const p = String(c.phone || '').replace(/\D/g, '');
+          return p.endsWith(phoneDigits.slice(-10)) || phoneDigits.endsWith(p.slice(-10));
+        });
+        if (exact) match = exact;
+      }
+
+      setClientForm((prev) => ({
+        ...prev,
+        name: match.name ? toTitleCase(match.name) : prev.name,
+        email: match.email || prev.email || '',
+        phone: match.phone || prev.phone || '',
+        ghlContactId: match.id || prev.ghlContactId || '',
+      }));
+    } catch (e) {
+      alert('GHL lookup failed: ' + e.message);
+    } finally {
+      setIsFindingGhl(false);
+    }
+  };
+
+  const handleSendSms = async () => {
+  const contactId = selectedClient?.ghlContactId || selectedClient?.ghlId;
+  if (!contactId) {
+    alert('This client has no GHL Contact ID. Use Find info from GHL first.');
+    return;
+  }
+  if (!smsText.trim() && !smsFile) {
+    alert('Type a message or attach a photo.');
+    return;
+  }
+
+  setIsSendingSms(true);
+  try {
+    let attachments = [];
+
+    if (smsFile) {
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+      const storage = getStorage();
+      const path = `sms-attachments/${selectedClient.id}/${Date.now()}_${smsFile.name}`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, smsFile);
+      const url = await getDownloadURL(storageRef);
+      attachments = [url];
+    }
+
+    const res = await fetch(
+      'https://us-central1-swarm-nutrition-app.cloudfunctions.net/sendGhlSms',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId,
+          message: smsText.trim() || (attachments.length ? ' ' : ''),
+          attachments,
+        }),
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      alert(data.error || data.details || 'Send failed');
+      return;
+    }
+
+    setSmsText('');
+    setSmsFile(null);
+    alert('Message sent');
+    // if you have a function that reloads GHL messages, call it here
+  } catch (err) {
+    console.error(err);
+    alert('Send error: ' + err.message);
+  } finally {
+    setIsSendingSms(false);
+  }
+};
+
   const handleSaveClient = async () => {
     if (!clientForm.name.trim()) return alert('Name is required');
     try {
@@ -345,6 +491,7 @@ export default function Clients({ focus, onFocusConsumed }) {
         coach: clientForm.coach.trim(),
         coachId: clientForm.coachId || '',
         ghlContactId: clientForm.ghlContactId.trim(),
+        status: clientForm.status || 'active',
       };
       if (editingClient) {
         await updateDoc(doc(db, 'clients', editingClient.id), {
@@ -459,7 +606,6 @@ export default function Clients({ focus, onFocusConsumed }) {
             <h2 className="text-sm font-bold text-white">Clients ({filteredClients.length})</h2>
             <div className="flex gap-1.5">
               <button onClick={openAddClient} className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-600/30">+ Add</button>
-              <button onClick={() => setIsGhlLookupOpen(true)} className="px-2.5 py-1 text-[10px] font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-600/30">GHL</button>
               {currentUserRole === 'Owner' && (
                 <button onClick={() => setShowUnlinkedScans(true)} className="px-2.5 py-1 text-[10px] font-bold bg-amber-600/20 text-amber-400 border border-amber-500/30 rounded-lg hover:bg-amber-600/30">Unlinked ({unlinkedScanGroups.length})</button>
               )}
@@ -483,18 +629,41 @@ export default function Clients({ focus, onFocusConsumed }) {
                     const isSelected = selectedClient?.id === c.id;
                     const ghlVal = c.ghlContactId || c.ghlId || c.ghl || c.contactId;
                     return (
-                      <div key={c.id} onClick={() => { setSelectedClient(c); setCompareScans([]); setIsCompareMode(false); }}
-                        className={`p-3 rounded-xl cursor-pointer border transition-all group ${isSelected ? 'bg-blue-600/10 border-blue-500/50 text-white shadow-md' : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-700'}`}>
-                        <div className="flex justify-between items-start">
-                          <div className="font-bold text-sm">{c.name}</div>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={(e) => { e.stopPropagation(); openEditClient(c); }} className="p-1 text-slate-400 hover:text-blue-400">✏️</button>
-                            <button onClick={(e) => { e.stopPropagation(); toggleClientStatus(c); }} className="p-1 text-slate-400 hover:text-amber-400">{(c.status || 'active') === 'active' ? '⏸️' : '▶️'}</button>
-                            <button onClick={(e) => { e.stopPropagation(); handleDeleteClient(c); }} className="p-1 text-slate-400 hover:text-red-400">🗑️</button>
+                      <div
+                        key={c.id}
+                        onClick={() => setSelectedClient(c)}
+                        className="p-3 rounded-xl cursor-pointer flex items-start justify-between gap-2 border border-slate-800 hover:border-slate-700 bg-slate-950"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-sm text-white truncate">{c.name}</div>
+                          <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                            {c.email || c.phone || ''}
+                          </div>
+                          {c.ghlContactId && (
+                            <div className="text-[10px] text-blue-400/80 truncate">GHL: {c.ghlContactId}</div>
+                          )}
+                          <div className="mt-1.5">
+                            <span
+                              className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full border ${(c.status || 'active') === 'active'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                  : 'bg-slate-700/50 text-slate-400 border-slate-600'
+                                }`}
+                            >
+                              {(c.status || 'active') === 'active' ? 'Active' : 'Inactive'}
+                            </span>
                           </div>
                         </div>
-                        <div className="text-xs text-slate-400 truncate mt-0.5">{c.email || c.phone || 'No Contact Info'}</div>
-                        {ghlVal && <div className="text-[10px] font-mono text-blue-400 mt-1">GHL: {ghlVal}</div>}
+
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => openEditClient(c)}
+                            className="p-1 text-slate-400 hover:text-blue-400"
+                          >
+                            ✏️
+                          </button>
+                          {/* your existing delete button here if you have one */}
+                        </div>
                       </div>
                     );
                   })}
@@ -645,27 +814,76 @@ export default function Clients({ focus, onFocusConsumed }) {
                 <div className="flex-1 p-4 overflow-y-auto space-y-3">
                   {loadingGhl ? <div className="text-xs text-slate-400 text-center py-8">Loading...</div> :
                     ghlData.messages.length === 0 ? <div className="text-xs text-slate-400 text-center py-8">No messages found</div> : (
-                    <>
-                      {[...ghlData.messages].reverse().map((m, idx) => {
-                        const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
-                        return (
-                          <div key={idx} className={`max-w-[80%] p-3.5 rounded-2xl text-xs ${isClient ? 'bg-slate-800 text-slate-200 border border-slate-700 mr-auto' : 'bg-blue-600 text-white ml-auto'}`}>
-                            <div className="flex justify-between items-center mb-1 gap-4">
-                              <span className="font-bold">{isClient ? 'Client' : 'Coach'}</span>
-                              <span className="text-[10px] opacity-70">{formatDate(m.dateAdded || m.createdAt || m.date)}</span>
+                      <>
+                        {[...ghlData.messages].reverse().map((m, idx) => {
+                          const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
+                          return (
+                            <div key={idx} className={`max-w-[80%] p-3.5 rounded-2xl text-xs ${isClient ? 'bg-slate-800 text-slate-200 border border-slate-700 mr-auto' : 'bg-blue-600 text-white ml-auto'}`}>
+                              <div className="flex justify-between items-center mb-1 gap-4">
+                                <span className="font-bold">{isClient ? 'Client' : 'Coach'}</span>
+                                <span className="text-[10px] opacity-70">{formatDate(m.dateAdded || m.createdAt || m.date)}</span>
+                              </div>
+                              <div className="text-sm whitespace-pre-wrap">{m.body || m.message || m.text || '[Attachment]'}</div>
                             </div>
-                            <div className="text-sm whitespace-pre-wrap">{m.body || m.message || m.text || '[Attachment]'}</div>
-                          </div>
-                        );
-                      })}
-                      <div ref={messagesEndRef} />
-                    </>
-                  )}
+                          );
+                        })}
+                        <div ref={messagesEndRef} />
+                      </>
+                    )}
                 </div>
-                <div className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
-                  <input type="text" value={outgoingSms} onChange={(e) => setOutgoingSms(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendSms()} placeholder={`Text ${selectedClient.name}...`} className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500" />
-                  <button onClick={handleSendSms} disabled={isSendingSms || !outgoingSms.trim()} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl">{isSendingSms ? 'Sending...' : 'Send SMS'}</button>
-                </div>
+             <div className="border border-slate-800 rounded-xl bg-slate-950 p-3 space-y-2">
+  <textarea
+    value={smsText}
+    onChange={(e) => setSmsText(e.target.value)}
+    rows={smsExpanded ? 6 : 2}
+    placeholder="Type a message..."
+    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none resize-y min-h-[48px]"
+  />
+
+  <div className="flex items-center justify-between gap-2 flex-wrap">
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setSmsExpanded((v) => !v)}
+        className="text-[11px] font-bold text-slate-400 hover:text-white"
+      >
+        {smsExpanded ? 'Collapse' : 'Expand'}
+      </button>
+
+      <label className="cursor-pointer text-[11px] font-bold text-blue-400 hover:text-blue-300">
+        {smsFile ? 'Change photo' : 'Attach photo'}
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => setSmsFile(e.target.files?.[0] || null)}
+        />
+      </label>
+
+      {smsFile && (
+        <span className="text-[11px] text-slate-400 truncate max-w-[140px]">
+          {smsFile.name}
+          <button
+            type="button"
+            className="ml-1 text-red-400"
+            onClick={() => setSmsFile(null)}
+          >
+            ×
+          </button>
+        </span>
+      )}
+    </div>
+
+    <button
+      type="button"
+      onClick={handleSendSms}
+      disabled={isSendingSms || (!smsText.trim() && !smsFile)}
+      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+    >
+      {isSendingSms ? 'Sending...' : 'Send'}
+    </button>
+  </div>
+</div>
               </div>
             )}
 
@@ -673,12 +891,12 @@ export default function Clients({ focus, onFocusConsumed }) {
               <div className="space-y-3">
                 {loadingGhl ? <div className="text-xs text-slate-400">Loading notes...</div> :
                   ghlData.notes.length === 0 ? <div className="text-xs text-slate-400">No notes found</div> :
-                  ghlData.notes.map((n, idx) => (
-                    <div key={idx} className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-xs">
-                      <div className="text-slate-200 text-sm whitespace-pre-wrap">{n.body || n.note}</div>
-                      <div className="text-[10px] text-slate-500 mt-2">{formatDate(n.dateAdded || n.createdAt)}</div>
-                    </div>
-                  ))}
+                    ghlData.notes.map((n, idx) => (
+                      <div key={idx} className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-xs">
+                        <div className="text-slate-200 text-sm whitespace-pre-wrap">{n.body || n.note}</div>
+                        <div className="text-[10px] text-slate-500 mt-2">{formatDate(n.dateAdded || n.createdAt)}</div>
+                      </div>
+                    ))}
               </div>
             )}
           </>
@@ -700,29 +918,48 @@ export default function Clients({ focus, onFocusConsumed }) {
               <div><label className="text-xs text-slate-400 font-medium">Phone</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Assigned Coach</label>
-               <select
-  value={clientForm.coachId || ''}
-  onChange={(e) => {
-    const id = e.target.value;
-    const coachUser = coaches.find((c) => c.id === id);
-    setClientForm({
-      ...clientForm,
-      coachId: id,
-      coach: coachUser ? (coachUser.name || coachUser.email || '') : '',
-    });
-  }}
-  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
->
-  <option value="">Unassigned</option>
-  {coaches.map((c) => (
-    <option key={c.id} value={c.id}>
-      {c.name || c.email}
-    </option>
-  ))}
-</select>
+                <select
+                  value={clientForm.coachId || ''}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const coachUser = coaches.find((c) => c.id === id);
+                    setClientForm({
+                      ...clientForm,
+                      coachId: id,
+                      coach: coachUser ? (coachUser.name || coachUser.email || '') : '',
+                    });
+                  }}
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Unassigned</option>
+                  {coaches.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name || c.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Status</label>
+                <select
+                  value={clientForm.status || 'active'}
+                  onChange={(e) => setClientForm({ ...clientForm, status: e.target.value })}
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
               </div>
               <div><label className="text-xs text-slate-400 font-medium">GHL Contact ID</label><input type="text" value={clientForm.ghlContactId} onChange={(e) => setClientForm({ ...clientForm, ghlContactId: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
             </div>
+            <button
+              type="button"
+              onClick={handleFindGhlInfo}
+              disabled={isFindingGhl}
+              className="w-full py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-50"
+            >
+              {isFindingGhl ? 'Searching GHL...' : 'Find info from GHL'}
+            </button>
             <div className="flex gap-3 pt-2">
               <button onClick={() => setIsClientModalOpen(false)} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300">Cancel</button>
               <button onClick={handleSaveClient} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white">{editingClient ? 'Save Changes' : 'Add Client'}</button>
@@ -790,18 +1027,81 @@ export default function Clients({ focus, onFocusConsumed }) {
                       <div className="font-bold text-white">{toTitleCase(group.name)}</div>
                       <div className="text-slate-400 mt-0.5">{group.phone || 'No phone'} · {group.scans.length} scan{group.scans.length !== 1 ? 's' : ''}</div>
                     </div>
-                    <button type="button" onClick={async (e) => {
-                      e.preventDefault(); e.stopPropagation();
-                      try {
-                        const phone = group.phone || '';
-                        let finalName = (group.name || '').trim();
-                        if (!finalName || finalName.toLowerCase() === 'unknown' || finalName.toLowerCase() === 'unknown client' || finalName.toLowerCase().startsWith('member')) {
-                          finalName = phone ? `Member ${phone}` : 'Unknown Client';
-                        } else finalName = toTitleCase(finalName);
-                        await addDoc(collection(db, 'clients'), { name: finalName, email: '', phone, ghlContactId: '', coach: '', status: 'inactive', createdAt: new Date() });
-                        alert('Added: ' + finalName);
-                      } catch (err) { alert('Add failed: ' + err.message); }
-                    }} className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-600/30">+ Add</button>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        try {
+                          const phone = group.phone || '';
+                          const phoneDigits = String(phone).replace(/\D/g, '');
+
+                          let finalName = (group.name || '').trim();
+                          if (
+                            !finalName ||
+                            finalName.toLowerCase() === 'unknown' ||
+                            finalName.toLowerCase() === 'unknown client' ||
+                            finalName.toLowerCase().startsWith('member')
+                          ) {
+                            finalName = phoneDigits ? `Member ${phoneDigits}` : 'Unknown Client';
+                          } else {
+                            finalName = toTitleCase(finalName);
+                          }
+
+                          let email = '';
+                          let ghlContactId = '';
+
+                          // Look up GHL by phone
+                          if (phoneDigits.length >= 7) {
+                            try {
+                              const res = await fetch(
+                                `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(phoneDigits)}`
+                              );
+                              const data = await res.json();
+                              if (data.success && Array.isArray(data.contacts) && data.contacts.length > 0) {
+                                const match =
+                                  data.contacts.find((c) => {
+                                    const p = String(c.phone || '').replace(/\D/g, '');
+                                    return (
+                                      p.length >= 7 &&
+                                      (p.endsWith(phoneDigits.slice(-10)) ||
+                                        phoneDigits.endsWith(p.slice(-10)))
+                                    );
+                                  }) || data.contacts[0];
+
+                                ghlContactId = match.id || '';
+                                email = match.email || '';
+                                if (match.name) finalName = toTitleCase(match.name);
+                              }
+                            } catch (err) {
+                              console.error('GHL lookup on unlinked add failed', err);
+                            }
+                          }
+
+                          await addDoc(collection(db, 'clients'), {
+                            name: finalName,
+                            email,
+                            phone: phoneDigits || phone,
+                            ghlContactId,
+                            coach: '',
+                            coachId: '',
+                            status: 'inactive', // still inactive until you assign coach + set active in Edit
+                            createdAt: new Date(),
+                          });
+
+                          alert(
+                            ghlContactId
+                              ? `Added: ${finalName} (linked to GHL)`
+                              : `Added: ${finalName} (no GHL match — link later in Edit)`
+                          );
+                        } catch (err) {
+                          alert('Add failed: ' + err.message);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-600/30"
+                    >
+                      + Add
+                    </button>
                   </div>
                 ))
               )}
@@ -866,7 +1166,7 @@ export default function Clients({ focus, onFocusConsumed }) {
 
       {selectedScan && <InBodyResultSheetModal scan={selectedScan} onClose={() => setSelectedScan(null)} onDelete={handleDeleteScan} />}
       {compareScans.length === 2 && <InBodyCompareModal scanA={compareScans[0]} scanB={compareScans[1]} onClose={() => { setCompareScans([]); setIsCompareMode(false); }} />}
-      <AdminInBodyUploadModal isOpen={isAdminUploadOpen} onClose={() => setIsAdminUploadOpen(false)} clients={clients} onComplete={() => {}} />
+      <AdminInBodyUploadModal isOpen={isAdminUploadOpen} onClose={() => setIsAdminUploadOpen(false)} clients={clients} onComplete={() => { }} />
     </div>
   );
 }
