@@ -1,1 +1,102 @@
 @import "tailwindcss";
+
+/* ---- Light mode (higher contrast) ---- */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+/* Surfaces */
+html.light .bg-slate-950 {
+  background-color: #ffffff !important;
+}
+html.light .bg-slate-900 {
+  background-color: #f8fafc !important;
+}
+html.light .bg-slate-800 {
+  background-color: #e2e8f0 !important;
+}
+html.light .bg-slate-800\/60 {
+  background-color: #e2e8f0 !important;
+}
+
+/* Primary text — dark and readable */
+html.light .text-white {
+  color: #020617 !important;
+}
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0f172a !important;
+}
+html.light .text-slate-300 {
+  color: #1e293b !important;
+}
+html.light .text-slate-400 {
+  color: #334155 !important;
+}
+html.light .text-slate-500 {
+  color: #475569 !important;
+}
+
+/* Borders — visible */
+html.light .border-slate-800,
+html.light .border-slate-700,
+html.light .border-slate-600 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Sidebar / muted panels */
+html.light aside,
+html.light .bg-slate-950.border-r {
+  background-color: #f1f5f9 !important;
+}
+
+/* Week/day cells need clear labels */
+html.light .text-\[11px\],
+html.light .text-\[10px\] {
+  color: #1e293b !important;
+}
+
+/* Accent colors stay strong */
+html.light .text-blue-400,
+html.light .text-blue-300 {
+  color: #1d4ed8 !important;
+}
+html.light .text-emerald-400,
+html.light .text-emerald-300 {
+  color: #047857 !important;
+}
+html.light .text-amber-400,
+html.light .text-amber-300 {
+  color: #b45309 !important;
+}
+html.light .text-purple-300,
+html.light .text-purple-400 {
+  color: #6d28d9 !important;
+}
+
+html.light .bg-blue-600 {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+html.light .bg-blue-600\/20 {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+}
+
+html.light .bg-black\/70 {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+}
+
+/* Inputs */
+html.light input,
+html.light select,
+html.light textarea {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}

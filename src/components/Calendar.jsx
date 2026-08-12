@@ -35,7 +35,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   const [bookings, setBookings] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [appointmentTypes, setAppointmentTypes] = useState([]);
-  
+  const [calView, setCalView] = useState('list'); // list | day | week | month
+  const [viewDate, setViewDate] = useState(() => new Date()); // anchor for day/week/month
   const { isOwner } = useAuth();
 
   // UI Filter & Modals
@@ -68,6 +69,28 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
 
   const [editingType, setEditingType] = useState(null);
   const [typeFormData, setTypeFormData] = useState({ name: '', durationMinutes: 15 });
+
+  const toYMD = (d) => {
+    const x = new Date(d);
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  };
+
+  const startOfWeek = (d) => {
+    const x = new Date(d);
+    const day = x.getDay(); // 0 Sun
+    x.setDate(x.getDate() - day);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+
+  const addDays = (d, n) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + n);
+    return x;
+  };
+
+  const bookingsOn = (ymd) =>
+    (bookings || []).filter((b) => b.date === ymd);
 
   // ---------------------------------------------------------------------------
   // 1. AUTO-SEED DEFAULTS & SUBSCRIBE TO FIRESTORE
@@ -153,7 +176,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       }));
     }
   }, [rooms, appointmentTypes]);
-    // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // 2. LIVE GHL CONTACT SEARCH & AUTO-IMPORT
   // ---------------------------------------------------------------------------
   const handleSearchGhl = async () => {
@@ -358,8 +381,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     setIsAddBookingOpen(false);
     setEditingBooking(null);
   };
-  
-    // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
   // 5. ROOM CRUD HANDLERS
   // ---------------------------------------------------------------------------
   const handleSaveRoom = async (e) => {
@@ -465,34 +488,34 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         </div>
 
         <div className="flex items-center gap-2">
-       {isOwner && (
-    <>
-      <button
-        onClick={() => setIsManageRoomsOpen(true)}
-        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
-      >
-        ⚙️ Manage Rooms ({rooms.length})
-      </button>
-      <button
-        onClick={() => setIsManageTypesOpen(true)}
-        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
-      >
-        ⚙️ Manage Types ({appointmentTypes.length})
-      </button>
-    </>
-  )}
+          {isOwner && (
+            <>
+              <button
+                onClick={() => setIsManageRoomsOpen(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
+              >
+                ⚙️ Manage Rooms ({rooms.length})
+              </button>
+              <button
+                onClick={() => setIsManageTypesOpen(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors border border-slate-700"
+              >
+                ⚙️ Manage Types ({appointmentTypes.length})
+              </button>
+            </>
+          )}
 
-    {/* Add New Booking stays visible for coaches */}
-<button
-  type="button"
-  onClick={() => {
-    setEditingBooking(null);
-    setIsAddBookingOpen(true);
-  }}
-  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-colors"
->
-  + Add New Booking
-</button>
+          {/* Add New Booking stays visible for coaches */}
+          <button
+            type="button"
+            onClick={() => {
+              setEditingBooking(null);
+              setIsAddBookingOpen(true);
+            }}
+            className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-colors"
+          >
+            + Add New Booking
+          </button>
         </div>
       </div>
 
@@ -506,9 +529,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
               <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px] overflow-x-auto">
                 <button
                   onClick={() => setSelectedRoomFilter('ALL')}
-                  className={`px-2.5 py-1 font-bold rounded-md transition-all ${
-                    selectedRoomFilter === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                  className={`px-2.5 py-1 font-bold rounded-md transition-all ${selectedRoomFilter === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                    }`}
                 >
                   All
                 </button>
@@ -516,9 +538,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   <button
                     key={room.id}
                     onClick={() => setSelectedRoomFilter(room.id)}
-                    className={`px-2.5 py-1 font-bold rounded-md transition-all whitespace-nowrap ${
-                      selectedRoomFilter === room.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                    }`}
+                    className={`px-2.5 py-1 font-bold rounded-md transition-all whitespace-nowrap ${selectedRoomFilter === room.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                      }`}
                   >
                     {room.name}
                   </button>
@@ -526,91 +547,265 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
               </div>
             </div>
           </div>
-
-          {filteredAppointments.length === 0 ? (
-  <div className="text-center py-12 text-xs text-slate-500">
-    No appointments scheduled. Click "Add New Booking" to create one.
-  </div>
-) : (
-  <div className="space-y-3">
-    {filteredAppointments.map((appt) => {
-      const past = isPastAppointment(appt);
-      return (
-        <div
-          key={appt.id}
-          className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${
-            past
-              ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
-              : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
-          }`}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {past ? (
-                <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
-                  Past
-                </span>
-              ) : (
-                <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
-                  Upcoming
-                </span>
-              )}
-
-              <span className={`font-bold text-sm ${past ? 'text-slate-400 line-through' : 'text-white'}`}>
-                {appt.appointmentTypeName || 'Appointment'}
-              </span>
-
-              {appt.roomName && (
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                  {appt.roomName}
-                </span>
-              )}
-
-              <span className="px-2 py-0.5 text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full">
-                {appt.durationMinutes || 15} min
-              </span>
+          {/* ===== VIEW SWITCHER — PASTE HERE ===== */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1">
+              {[
+                { id: 'list', label: 'List' },
+                { id: 'day', label: 'Day' },
+                { id: 'week', label: 'Week' },
+                { id: 'month', label: 'Month' },
+              ].map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setCalView(v.id)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${calView === v.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                  {v.label}
+                </button>
+              ))}
             </div>
 
-            <div className={`text-xs mt-1 ${past ? 'text-slate-500' : 'text-slate-400'}`}>
-              Member:{' '}
-              <span className={past ? 'text-slate-500' : 'text-slate-200 font-medium'}>
-                {appt.clientName || '—'}
-              </span>
-            </div>
-
-            {appt.notes && (
-              <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+            {calView !== 'list' && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (calView === 'day') setViewDate(addDays(viewDate, -1));
+                    else if (calView === 'week') setViewDate(addDays(viewDate, -7));
+                    else setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+                  }}
+                  className="px-2 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewDate(new Date())}
+                  className="px-2 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (calView === 'day') setViewDate(addDays(viewDate, 1));
+                    else if (calView === 'week') setViewDate(addDays(viewDate, 7));
+                    else setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+                  }}
+                  className="px-2 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300"
+                >
+                  ›
+                </button>
+                <span className="text-sm font-bold text-white">
+                  {calView === 'month'
+                    ? viewDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+                    : viewDate.toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                </span>
+              </div>
             )}
           </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
-              <div className="font-semibold">{appt.date}</div>
-              <div>{appt.time}</div>
+          {calView === 'list' && (filteredAppointments.length === 0 ? (
+            <div className="text-center py-12 text-xs text-slate-500">
+              No appointments scheduled. Click "Add New Booking" to create one.
             </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredAppointments.map((appt) => {
+                const past = isPastAppointment(appt);
+                return (
+                  <div
+                    key={appt.id}
+                    className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${past
+                        ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
+                        : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
+                      }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {past ? (
+                          <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
+                            Past
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+                            Upcoming
+                          </span>
+                        )}
 
-            <div className="flex gap-1">
-              <button
-                type="button"
-                onClick={() => openEditBooking(appt)}
-                className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteBooking(appt.id)}
-                className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
-              >
-                Delete
-              </button>
+                        <span className={`font-bold text-sm ${past ? 'text-slate-400 line-through' : 'text-white'}`}>
+                          {appt.appointmentTypeName || 'Appointment'}
+                        </span>
+
+                        {appt.roomName && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                            {appt.roomName}
+                          </span>
+                        )}
+
+                        <span className="px-2 py-0.5 text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full">
+                          {appt.durationMinutes || 15} min
+                        </span>
+                      </div>
+
+                      <div className={`text-xs mt-1 ${past ? 'text-slate-500' : 'text-slate-400'}`}>
+                        Member:{' '}
+                        <span className={past ? 'text-slate-500' : 'text-slate-200 font-medium'}>
+                          {appt.clientName || '—'}
+                        </span>
+                      </div>
+
+                      {appt.notes && (
+                        <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
+                        <div className="font-semibold">{appt.date}</div>
+                        <div>{appt.time}</div>
+                      </div>
+
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditBooking(appt)}
+                          className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBooking(appt.id)}
+                          className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        </div>
-      );
-    })}
-  </div>
-)}
+          ))}
+                    {calView === 'day' && (
+            <div className="space-y-2">
+              {bookingsOn(toYMD(viewDate)).length === 0 ? (
+                <p className="text-center py-10 text-xs text-slate-500">No appointments this day</p>
+              ) : (
+                bookingsOn(toYMD(viewDate))
+                  .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+                  .map((appt) => (
+                    <button
+                      key={appt.id}
+                      type="button"
+                      onClick={() => openEditBooking(appt)}
+                      className="w-full text-left p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-blue-500/40"
+                    >
+                      <div className="font-bold text-white text-sm">
+                        {appt.time} · {appt.clientName}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {appt.appointmentTypeName || 'Appt'} · {appt.roomName || 'Room'}
+                      </div>
+                    </button>
+                  ))
+              )}
+            </div>
+          )}
+
+          {calView === 'week' && (
+            <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
+              {Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(viewDate), i)).map((d) => {
+                const ymd = toYMD(d);
+                const items = bookingsOn(ymd).sort((a, b) =>
+                  (a.time || '').localeCompare(b.time || '')
+                );
+                const isToday = ymd === toYMD(new Date());
+                return (
+                  <div
+                    key={ymd}
+                    className={`bg-slate-950 border rounded-xl p-2 min-h-[120px] ${
+                      isToday ? 'border-blue-500/50' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="text-[11px] font-bold text-slate-400 mb-2">
+                      {d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}
+                    </div>
+                    <div className="space-y-1">
+                      {items.map((appt) => (
+                        <button
+                          key={appt.id}
+                          type="button"
+                          onClick={() => openEditBooking(appt)}
+                          className="w-full text-left px-1.5 py-1 rounded-lg bg-blue-600/20 text-[10px] text-blue-200"
+                        >
+                          <div className="font-bold">{appt.time}</div>
+                          <div className="truncate">{appt.clientName}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {calView === 'month' && (() => {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            const start = startOfWeek(new Date(year, month, 1));
+            const cells = Array.from({ length: 42 }, (_, i) => addDays(start, i));
+            return (
+              <div>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                    <div key={d} className="text-center text-[10px] font-bold text-slate-500 py-1">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {cells.map((d) => {
+                    const ymd = toYMD(d);
+                    const inMonth = d.getMonth() === month;
+                    const items = bookingsOn(ymd);
+                    const isToday = ymd === toYMD(new Date());
+                    return (
+                      <button
+                        key={ymd}
+                        type="button"
+                        onClick={() => {
+                          setViewDate(d);
+                          setCalView('day');
+                        }}
+                        className={`min-h-[68px] p-1 rounded-xl border text-left ${
+                          isToday ? 'border-blue-500/50 bg-blue-600/10' : 'border-slate-800 bg-slate-950'
+                        } ${inMonth ? '' : 'opacity-40'}`}
+                      >
+                        <div className="text-[11px] font-bold text-slate-300">{d.getDate()}</div>
+                        {items.slice(0, 2).map((appt) => (
+                          <div key={appt.id} className="truncate text-[9px] text-blue-300">
+                            {appt.time} {appt.clientName}
+                          </div>
+                        ))}
+                        {items.length > 2 && (
+                          <div className="text-[9px] text-slate-500">+{items.length - 2}</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* ROOM STATUS SIDEBAR */}
@@ -639,12 +834,12 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         </div>
       </div>
 
-      
 
-            {/* ========================================================================= */}
+
+      {/* ========================================================================= */}
       {/* MODAL 1: ADD / EDIT BOOKING */}
       {/* ========================================================================= */}
-      
+
       {isAddBookingOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-100 shadow-2xl my-8">
@@ -678,7 +873,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   <option value="">-- Choose from Local Roster ({clients.length}) --</option>
                   {clients.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} {c.phone ? `(${c.phone})` : ''}
+                      {c.name}
                     </option>
                   ))}
                 </select>
@@ -997,7 +1192,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   </div>
                 </div>
               ))}
-              
+
             </div>
           </div>
         </div>

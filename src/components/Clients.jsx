@@ -15,8 +15,9 @@ import InBodyResultSheetModal from './InBodyResultSheetModal';
 import AdminInBodyUploadModal from './AdminInBodyUploadModal';
 import InBodyCompareModal from './InBodyCompareModal';
 import { useAuth } from '../context/AuthContext';
-
+import ClientPayrollPanel from './ClientPayrollPanel';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
 
 const handleSendSms = async () => {
   if (!selectedClient?.ghlContactId) {
@@ -212,6 +213,26 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [smsExpanded, setSmsExpanded] = useState(false);
   const [smsFile, setSmsFile] = useState(null);
   const [smsText, setSmsText] = useState('');
+  const [payrollCoaches, setPayrollCoaches] = useState([]);
+  
+
+  useEffect(() => {
+  const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+    setPayrollCoaches(
+      snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name || data.email,
+          isOwner: data.role === 'owner',
+          role: data.role,
+          ...data,
+        };
+      })
+    );
+  });
+  return () => unsub();
+}, []);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
@@ -854,6 +875,13 @@ export default function Clients({ focus, onFocusConsumed }) {
         ) : (
           <div className="text-center py-24 text-slate-500">Select a client from the left roster.</div>
         )}
+        {/* OWNER PAYROLL PANEL — paste here */}
+    {(isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner') && (
+      <ClientPayrollPanel
+        client={selectedClient}
+        coaches={payrollCoaches}
+      />
+    )}
       </main>
 
       {isClientModalOpen && (
@@ -1143,5 +1171,7 @@ export default function Clients({ focus, onFocusConsumed }) {
       {compareScans.length === 2 && <InBodyCompareModal scanA={compareScans[0]} scanB={compareScans[1]} onClose={() => { setCompareScans([]); setIsCompareMode(false); }} />}
       <AdminInBodyUploadModal isOpen={isAdminUploadOpen} onClose={() => setIsAdminUploadOpen(false)} clients={clients} onComplete={() => { }} />
     </div>
+    
   );
+  
 }
