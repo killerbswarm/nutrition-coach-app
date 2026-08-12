@@ -425,62 +425,6 @@ export default function Clients({ focus, onFocusConsumed }) {
     }
   };
 
-  const handleSendSms = async () => {
-  const contactId = selectedClient?.ghlContactId || selectedClient?.ghlId;
-  if (!contactId) {
-    alert('This client has no GHL Contact ID. Use Find info from GHL first.');
-    return;
-  }
-  if (!smsText.trim() && !smsFile) {
-    alert('Type a message or attach a photo.');
-    return;
-  }
-
-  setIsSendingSms(true);
-  try {
-    let attachments = [];
-
-    if (smsFile) {
-      const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-      const storage = getStorage();
-      const path = `sms-attachments/${selectedClient.id}/${Date.now()}_${smsFile.name}`;
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, smsFile);
-      const url = await getDownloadURL(storageRef);
-      attachments = [url];
-    }
-
-    const res = await fetch(
-      'https://us-central1-swarm-nutrition-app.cloudfunctions.net/sendGhlSms',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contactId,
-          message: smsText.trim() || (attachments.length ? ' ' : ''),
-          attachments,
-        }),
-      }
-    );
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) {
-      alert(data.error || data.details || 'Send failed');
-      return;
-    }
-
-    setSmsText('');
-    setSmsFile(null);
-    alert('Message sent');
-    // if you have a function that reloads GHL messages, call it here
-  } catch (err) {
-    console.error(err);
-    alert('Send error: ' + err.message);
-  } finally {
-    setIsSendingSms(false);
-  }
-};
-
   const handleSaveClient = async () => {
     if (!clientForm.name.trim()) return alert('Name is required');
     try {
