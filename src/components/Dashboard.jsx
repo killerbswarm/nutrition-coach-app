@@ -232,7 +232,7 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-3 px-2 py-3 mb-6">
             <img
-              src="/bee-icon.png"
+              src="/Bee_BlackYellowWhite.png"
               alt="Swarm"
               className="w-8 h-8 rounded-lg object-contain"
             />

@@ -5,6 +5,12 @@
 		},
 		{
 			"path": "../../../12week"
+		},
+		{
+			"path": "../../../committedclub"
+		},
+		{
+			"path": "../../../cleaningtracker"
 		}
 	],
 	"settings": {}
