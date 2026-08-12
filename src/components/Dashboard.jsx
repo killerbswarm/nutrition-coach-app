@@ -6,6 +6,7 @@ import Clients from './Clients';
 import Calendar from './Calendar';
 import UserManagement from './UserManagement';
 import Scans from './Scans';
+import PayrollShell from './PayrollShell';
 
 const parseScanDate = (dateVal) => {
   if (!dateVal) return null;
@@ -59,18 +60,18 @@ export default function Dashboard() {
   const [profileName, setProfileName] = useState('');
 
   useEffect(() => {
-  if (!currentUser?.uid) {
-    setProfileName('');
-    return;
-  }
-  const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
-    if (snap.exists()) {
-      const d = snap.data();
-      setProfileName(d.name || d.displayName || '');
+    if (!currentUser?.uid) {
+      setProfileName('');
+      return;
     }
-  });
-  return () => unsub();
-}, [currentUser?.uid]);
+    const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setProfileName(d.name || d.displayName || '');
+      }
+    });
+    return () => unsub();
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
@@ -252,39 +253,51 @@ export default function Dashboard() {
             )}
             {currentUserRole === 'Owner' && (
               <button onClick={() => setCurrentNavView('staff')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-sm transition-all ${currentNavView === 'staff' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
-                <span>👤</span> Manage Staff
+                <span>👤</span> Staff
+              </button>
+            )}
+            {currentUserRole === 'Owner' && (
+              <button
+                type="button"
+                onClick={() => setCurrentNavView('payroll')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${currentNavView === 'payroll'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+              >
+                <span>💰</span>
+                <span>Payroll</span>
               </button>
             )}
           </nav>
         </div>
-     <div className="pt-4 border-t border-slate-800 px-2 space-y-2">
-  <div className="flex items-center gap-2 flex-wrap">
- <span className="text-sm font-semibold text-white truncate">
-  {profileName ||
-    currentUser?.displayName ||
-    currentUser?.email?.split('@')[0] ||
-    'User'}
-</span>
-    <span
-      className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-        currentUserRole === 'Owner'
-          ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-          : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-      }`}
-    >
-      {currentUserRole}
-    </span>
-  </div>
-  {currentUser?.email && (
-    <div className="text-[10px] text-slate-500 truncate">{currentUser.email}</div>
-  )}
-  <button
-    onClick={() => logout()}
-    className="w-full mt-1 px-3 py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-300 hover:bg-red-600/20 hover:text-red-400 transition-colors"
-  >
-    Log out
-  </button>
-</div>
+        <div className="pt-4 border-t border-slate-800 px-2 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-white truncate">
+              {profileName ||
+                currentUser?.displayName ||
+                currentUser?.email?.split('@')[0] ||
+                'User'}
+            </span>
+            <span
+              className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${currentUserRole === 'Owner'
+                  ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                  : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                }`}
+            >
+              {currentUserRole}
+            </span>
+          </div>
+          {currentUser?.email && (
+            <div className="text-[10px] text-slate-500 truncate">{currentUser.email}</div>
+          )}
+          <button
+            onClick={() => logout()}
+            className="w-full mt-1 px-3 py-2 text-xs font-bold rounded-xl bg-slate-800 text-slate-300 hover:bg-red-600/20 hover:text-red-400 transition-colors"
+          >
+            Log out
+          </button>
+        </div>
       </aside>
 
       {currentNavView === 'dashboard' && (
@@ -453,6 +466,9 @@ export default function Dashboard() {
       {currentNavView === 'staff' && currentUserRole === 'Owner' && (
         <main className="flex-1 overflow-y-auto bg-slate-950"><UserManagement /></main>
       )}
+      {currentNavView === 'payroll' && currentUserRole === 'Owner' && (
+  <PayrollShell />
+)}
     </div>
   );
 }

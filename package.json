@@ -16,9 +16,11 @@
     "@fullcalendar/react": "^6.1.15",
     "@fullcalendar/timegrid": "^6.1.15",
     "@tailwindcss/vite": "^4.3.3",
+    "chart.js": "^4.5.1",
     "firebase": "^12.17.1",
     "lucide-react": "^1.30.0",
     "react": "^19.2.8",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {

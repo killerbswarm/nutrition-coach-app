@@ -4,6 +4,7 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "fireb
 import { initializeApp, getApps, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { Trash2, Shield, User } from "lucide-react";
+import StaffPayouts from './StaffPayouts';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -32,7 +33,9 @@ export default function UserManagement() {
     phone: "",
     role: "coach",
   });
-
+  const [selectedStaff, setSelectedStaff] = useState(null); // user object or null
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "users"), (snapshot) => {
       setUsers(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
@@ -105,6 +108,7 @@ export default function UserManagement() {
       setPhone("");
       setPassword("");
       setRole("coach");
+      setIsAddOpen(false);
     } catch (err) {
       console.error("Error creating user:", err);
       setError(err.message);
@@ -144,168 +148,265 @@ export default function UserManagement() {
   const inputClass =
     "w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500";
 
-  return (
+   return (
     <div className="p-6 space-y-6 text-slate-100">
-      <div>
-        <h1 className="text-2xl font-black text-white">Manage Staff</h1>
-        <p className="text-xs text-slate-400 mt-1">Add coaches, set roles, and phone numbers for SMS alerts</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black text-white">Staff</h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Click a name for payout history · Add staff opens a form
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setError("");
+            setSuccess("");
+            setName("");
+            setEmail("");
+            setPhone("");
+            setPassword("");
+            setRole("coach");
+            setIsAddOpen(true);
+          }}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl"
+        >
+          + Add Staff
+        </button>
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>
+        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+          {error}
+        </div>
       )}
       {success && (
-        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm">{success}</div>
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm">
+          {success}
+        </div>
       )}
 
-      {/* Add staff */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h2 className="text-lg font-bold text-white mb-4">Add Staff Member</h2>
-        <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-slate-400 font-medium">Full Name</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className={inputClass} placeholder="Brian Cook" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 font-medium">Email (login)</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className={inputClass} placeholder="brian@crossfitswarm.com" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 font-medium">Phone (for SMS alerts)</label>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} placeholder="4135551234" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 font-medium">Temp Password</label>
-            <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className={inputClass} placeholder="Min 6 characters" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 font-medium">Role</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)} className={inputClass}>
-              <option value="coach">Coach</option>
-              <option value="owner">Owner</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl"
+      {/* Staff list */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2">
+        {users.length === 0 && (
+          <div className="py-8 text-center text-sm text-slate-500">No staff yet</div>
+        )}
+        {users.map((u) => {
+          const active = selectedStaff?.id === u.id;
+          return (
+            <div
+              key={u.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedStaff(u)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setSelectedStaff(u);
+              }}
+              className={`w-full text-left p-3 rounded-xl border transition flex justify-between items-center gap-3 cursor-pointer ${
+                active
+                  ? "bg-blue-600/20 border-blue-500/40"
+                  : "bg-slate-950 border-slate-800 hover:border-slate-700"
+              }`}
             >
-              {loading ? "Creating..." : "Add Staff Member"}
-            </button>
-          </div>
-        </form>
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className={`p-2 rounded-lg shrink-0 ${
+                    u.role === "owner"
+                      ? "bg-purple-500/15 text-purple-300"
+                      : "bg-blue-500/15 text-blue-300"
+                  }`}
+                >
+                  {u.role === "owner" ? <Shield className="w-5 h-5" /> : <User className="w-5 h-5" />}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-white truncate">{u.name || "Unnamed Staff"}</div>
+                  <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {u.phone ? `Phone: ${u.phone}` : "No phone"} · {u.role || "coach"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={() => openEditUser(u)}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteUser(u.id, u.name || u.email)}
+                  className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Roster */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-        <h2 className="text-lg font-bold text-white mb-4">Current Staff Roster</h2>
-        <div className="divide-y divide-slate-800">
-          {users.length === 0 && (
-            <div className="py-8 text-center text-sm text-slate-500">No staff yet</div>
-          )}
-         {users.map((u) => (
-  <div key={u.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-    <div className="flex items-center gap-3 min-w-0">
-      <div className={`p-2 rounded-lg shrink-0 ${u.role === "owner" ? "bg-purple-500/15 text-purple-300" : "bg-blue-500/15 text-blue-300"}`}>
-        {u.role === "owner" ? <Shield className="w-5 h-5" /> : <User className="w-5 h-5" />}
-      </div>
-      <div className="min-w-0">
-        <div className="font-semibold text-white truncate">{u.name || "Unnamed Staff"}</div>
-        <div className="text-xs text-slate-400 truncate">{u.email}</div>
-        <div className="text-xs text-slate-500 mt-0.5">
-          {u.phone ? `Phone: ${u.phone}` : "No phone"} · {u.role || "coach"}
-        </div>
-      </div>
-    </div>
-
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => openEditUser(u)}
-        className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
-      >
-        Edit
-      </button>
-      <button
-        onClick={() => handleDeleteUser(u.id, u.name || u.email)}
-        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
-        title="Delete"
-      >
-        <Trash2 className="w-4 h-4" />
-      </button>
-    </div>
-  </div>
-))}
-        </div>
-      </div>
-      {isEditOpen && editingUser && (
-  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-bold text-white">Edit Staff</h3>
-        <button onClick={() => setIsEditOpen(false)} className="text-slate-400 hover:text-white text-xl">×</button>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <label className="text-xs text-slate-400 font-medium">Full Name</label>
-          <input
-            type="text"
-            value={editForm.name}
-            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-            className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-slate-400 font-medium">Email (login)</label>
-          <input
-            type="email"
-            value={editForm.email}
-            disabled
-            className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
-          />
-          <p className="text-[10px] text-slate-500 mt-1">Login email can’t be changed here</p>
-        </div>
-        <div>
-          <label className="text-xs text-slate-400 font-medium">Phone (SMS alerts)</label>
-          <input
-            type="tel"
-            value={editForm.phone}
-            onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-            placeholder="4135551234"
-            className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-slate-400 font-medium">Role</label>
-          <select
-            value={editForm.role}
-            onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-            className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-          >
-            <option value="coach">Coach</option>
-            <option value="owner">Owner</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="flex gap-3 pt-2">
-        <button
-          onClick={() => setIsEditOpen(false)}
-          className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSaveEdit}
-          className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white"
-        >
-          Save Changes
-        </button>
-      </div>
-    </div>
-  </div>
+      {/* Payouts only when a staff member is selected */}
+   {selectedStaff && (
+  <StaffPayouts
+    key={selectedStaff.id}
+    selectedCoachName={selectedStaff.name}
+    onClose={() => setSelectedStaff(null)}
+  />
 )}
+
+      {/* Add Staff modal */}
+      {isAddOpen && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">Add Staff Member</h3>
+              <button
+                type="button"
+                onClick={() => setIsAddOpen(false)}
+                className="text-slate-400 hover:text-white text-xl"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Full Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  className={inputClass}
+                  placeholder="Brian Cook"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Email (login)</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className={inputClass}
+                  placeholder="brian@crossfitswarm.com"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Phone (SMS alerts)</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className={inputClass}
+                  placeholder="4135551234"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Temp Password</label>
+                <input
+                  type="text"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className={inputClass}
+                  placeholder="Min 6 characters"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Role</label>
+                <select value={role} onChange={(e) => setRole(e.target.value)} className={inputClass}>
+                  <option value="coach">Coach</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl"
+                >
+                  {loading ? "Creating..." : "Add Staff Member"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal — keep your existing block */}
+      {isEditOpen && editingUser && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            {/* ... same edit fields as you already have ... */}
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">Edit Staff</h3>
+              <button
+                type="button"
+                onClick={() => setIsEditOpen(false)}
+                className="text-slate-400 hover:text-white text-xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Full Name</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Email (login)</label>
+                <input type="email" value={editForm.email} disabled className={`${inputClass} opacity-60`} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Phone (SMS alerts)</label>
+                <input
+                  type="tel"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Role</label>
+                <select
+                  value={editForm.role}
+                  onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                  className={inputClass}
+                >
+                  <option value="coach">Coach</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsEditOpen(false)}
+                className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

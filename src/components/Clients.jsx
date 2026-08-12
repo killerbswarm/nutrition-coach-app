@@ -198,7 +198,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [isFindingGhl, setIsFindingGhl] = useState(false);
-  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active', });
+  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active',   nameAliases: '',});
   const [coaches, setCoaches] = useState([]);
   const [habits, setHabits] = useState([]);
   const [clientHabits, setClientHabits] = useState([]);
@@ -370,7 +370,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   })();
   const openAddClient = () => {
     setEditingClient(null);
-    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '', status: 'active' });
+    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '', status: 'active', nameAliases: '', });
     setIsClientModalOpen(true);
   };
   const openEditClient = (c) => {
@@ -383,6 +383,9 @@ export default function Clients({ focus, onFocusConsumed }) {
       coachId: c.coachId || '',
       ghlContactId: c.ghlContactId || c.ghlId || '',
       status: c.status || 'active',
+      nameAliases: Array.isArray(c.nameAliases)
+      ? c.nameAliases.join(', ')
+      : (c.nameAliases || ''),
     });
     setIsClientModalOpen(true);
   };
@@ -436,6 +439,10 @@ export default function Clients({ focus, onFocusConsumed }) {
         coachId: clientForm.coachId || '',
         ghlContactId: clientForm.ghlContactId.trim(),
         status: clientForm.status || 'active',
+        nameAliases: String(clientForm.nameAliases || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean),
       };
       if (editingClient) {
         await updateDoc(doc(db, 'clients', editingClient.id), {
@@ -857,7 +864,31 @@ export default function Clients({ focus, onFocusConsumed }) {
               <button onClick={() => setIsClientModalOpen(false)} className="text-slate-400 hover:text-white text-xl">×</button>
             </div>
             <div className="space-y-3">
-              <div><label className="text-xs text-slate-400 font-medium">Full Name *</label><input type="text" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
+                <div>
+  <label className="text-xs text-slate-400 font-medium">Full Name *</label>
+  <input
+    type="text"
+    value={clientForm.name}
+    onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })}
+    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+  />
+</div>
+
+<div>
+  <label className="text-xs text-slate-400 font-medium">
+    Name aliases (payroll / nicknames)
+  </label>
+  <input
+    type="text"
+    value={clientForm.nameAliases || ''}
+    onChange={(e) => setClientForm({ ...clientForm, nameAliases: e.target.value })}
+    placeholder="Abi Guaren, Abi G"
+    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+  />
+  <p className="text-[10px] text-slate-500 mt-1">
+    Comma-separated. Matches automated payroll names to this client.
+  </p>
+</div>
               <div><label className="text-xs text-slate-400 font-medium">Email</label><input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div><label className="text-xs text-slate-400 font-medium">Phone</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div>
