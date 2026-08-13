@@ -100,3 +100,93 @@ html.light textarea {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
 }
+
+/* Coach group headers in client list */
+html.light .bg-slate-950 {
+  background-color: #ffffff !important;
+}
+html.light [class*="uppercase"][class*="tracking"] {
+  color: #0f172a !important;
+}
+
+/* Dark chips that stayed black in light mode */
+html.light .bg-slate-950.border-slate-800,
+html.light .bg-slate-900 {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* InBody result sheet / metric cards */
+html.light .bg-slate-800,
+html.light .bg-slate-700 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Muted labels on gray cards */
+html.light .text-slate-400,
+html.light .text-slate-500 {
+  color: #334155 !important;
+}
+
+/* Keep strong metric numbers visible */
+html.light .text-orange-400,
+html.light .text-orange-500 {
+  color: #c2410c !important;
+}
+html.light .text-blue-400 {
+  color: #1d4ed8 !important;
+}
+html.light .text-purple-400 {
+  color: #6d28d9 !important;
+}
+html.light .text-emerald-400 {
+  color: #047857 !important;
+}
+/* Opacity variants Tailwind uses (these were missing) */
+html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-950\/50,
+html.light .bg-slate-900\/95,
+html.light .bg-slate-900\/80,
+html.light .bg-slate-800\/60,
+html.light .bg-slate-800\/50 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light .bg-blue-500\/10,
+html.light .bg-blue-600\/20 {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+}
+
+html.light .bg-red-500\/10 {
+  background-color: #fee2e2 !important;
+}
+
+html.light .bg-emerald-500\/15,
+html.light .bg-emerald-600\/20 {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+/* Coach group sticky headers */
+html.light .sticky.top-0 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* InBody modal sheet background */
+html.light .bg-slate-900.border-slate-700,
+html.light .max-w-4xl.bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html.light .text-slate-100 {
+  color: #0f172a !important;
+}
+html.light .text-amber-400 {
+  color: #b45309 !important;
+}

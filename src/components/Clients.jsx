@@ -199,7 +199,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [isFindingGhl, setIsFindingGhl] = useState(false);
-  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active',   nameAliases: '',});
+  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active', nameAliases: '', });
   const [coaches, setCoaches] = useState([]);
   const [habits, setHabits] = useState([]);
   const [clientHabits, setClientHabits] = useState([]);
@@ -214,25 +214,25 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [smsFile, setSmsFile] = useState(null);
   const [smsText, setSmsText] = useState('');
   const [payrollCoaches, setPayrollCoaches] = useState([]);
-  
+
 
   useEffect(() => {
-  const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-    setPayrollCoaches(
-      snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          name: data.name || data.email,
-          isOwner: data.role === 'owner',
-          role: data.role,
-          ...data,
-        };
-      })
-    );
-  });
-  return () => unsub();
-}, []);
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      setPayrollCoaches(
+        snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            name: data.name || data.email,
+            isOwner: data.role === 'owner',
+            role: data.role,
+            ...data,
+          };
+        })
+      );
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
@@ -405,8 +405,8 @@ export default function Clients({ focus, onFocusConsumed }) {
       ghlContactId: c.ghlContactId || c.ghlId || '',
       status: c.status || 'active',
       nameAliases: Array.isArray(c.nameAliases)
-      ? c.nameAliases.join(', ')
-      : (c.nameAliases || ''),
+        ? c.nameAliases.join(', ')
+        : (c.nameAliases || ''),
     });
     setIsClientModalOpen(true);
   };
@@ -461,9 +461,9 @@ export default function Clients({ focus, onFocusConsumed }) {
         ghlContactId: clientForm.ghlContactId.trim(),
         status: clientForm.status || 'active',
         nameAliases: String(clientForm.nameAliases || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean),
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
       };
       if (editingClient) {
         await updateDoc(doc(db, 'clients', editingClient.id), {
@@ -571,8 +571,13 @@ export default function Clients({ focus, onFocusConsumed }) {
   const currentGhlId = selectedClient?.ghlContactId || selectedClient?.ghlId || selectedClient?.ghl || selectedClient?.contactId || 'N/A';
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <section className="w-72 border-r border-slate-800 bg-slate-900/50 flex flex-col">
+   <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
+      <section
+        className={`
+          w-full md:w-72 border-r border-slate-800 bg-slate-900/50 flex-col
+          ${selectedClient ? 'hidden md:flex' : 'flex'}
+        `}
+      >
         <div className="p-4 border-b border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-white">Clients ({filteredClients.length})</h2>
@@ -603,39 +608,39 @@ export default function Clients({ focus, onFocusConsumed }) {
                     return (
                       <div
                         key={c.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setSelectedClient(c)}
-                        className="p-3 rounded-xl cursor-pointer flex items-start justify-between gap-2 border border-slate-800 hover:border-slate-700 bg-slate-950"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') setSelectedClient(c);
+                        }}
+                        className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between gap-2 cursor-pointer ${selectedClient?.id === c.id
+                            ? 'bg-blue-600/20 border-blue-500/40'
+                            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                          }`}
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="font-bold text-sm text-white truncate">{c.name}</div>
-                          <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                            {c.email || c.phone || ''}
-                          </div>
-                          {c.ghlContactId && (
-                            <div className="text-[10px] text-blue-400/80 truncate">GHL: {c.ghlContactId}</div>
-                          )}
-                          <div className="mt-1.5">
-                            <span
-                              className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full border ${(c.status || 'active') === 'active'
-                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                  : 'bg-slate-700/50 text-slate-400 border-slate-600'
-                                }`}
-                            >
-                              {(c.status || 'active') === 'active' ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => openEditClient(c)}
-                            className="p-1 text-slate-400 hover:text-blue-400"
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="font-bold text-sm text-white truncate">{c.name}</span>
+                          <span
+                            className={`shrink-0 px-2 py-0.5 text-[10px] font-bold rounded-full border ${(c.status || 'active') === 'active'
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                : 'bg-slate-700/50 text-slate-400 border-slate-600'
+                              }`}
                           >
-                            ✏️
-                          </button>
-                          {/* your existing delete button here if you have one */}
+                            {(c.status || 'active') === 'active' ? 'Active' : 'Inactive'}
+                          </span>
                         </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditClient(c);
+                          }}
+                          className="shrink-0 p-1.5 text-slate-400 hover:text-blue-400 rounded-lg"
+                          title="Edit"
+                        >
+                          ✏️
+                        </button>
                       </div>
                     );
                   })}
@@ -646,9 +651,21 @@ export default function Clients({ focus, onFocusConsumed }) {
         </div>
       </section>
 
-      <main className="flex-1 flex flex-col overflow-y-auto bg-slate-950 p-6">
+            <main
+        className={`
+          flex-1 flex-col overflow-y-auto bg-slate-950 p-4 md:p-6 min-w-0
+          ${selectedClient ? 'flex' : 'hidden md:flex'}
+        `}
+      >
         {selectedClient ? (
           <>
+          <button
+              type="button"
+              onClick={() => setSelectedClient(null)}
+              className="md:hidden mb-3 ml-12 text-sm font-bold text-blue-400 text-left"
+            >
+              ← Back to list
+            </button>
             <div className="flex justify-between items-start pb-6 border-b border-slate-800 mb-6">
               <div>
                 <div className="flex items-center gap-3">
@@ -667,10 +684,23 @@ export default function Clients({ focus, onFocusConsumed }) {
                 { id: 'inbody', label: `InBody Scans (${clientScans.length})` },
                 { id: 'habits', label: `Habits (${clientHabits.length})` },
                 { id: 'appointments', label: `Appointments (${clientBookings.length})` },
-                { id: 'messages', label: `GHL Live SMS (${ghlData.messages.length})` },
-                { id: 'notes', label: `GHL Notes (${ghlData.notes.length})` },
+                { id: 'messages', label: `SMS (${ghlData.messages.length})` },
+                { id: 'notes', label: `Notes (${ghlData.notes.length})` },
+                ...((isOwner || currentUserRole === 'Owner')
+                  ? [{ id: 'payments', label: 'Payments' }]
+                  : []),
               ].map((tab) => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`pb-3 text-sm font-bold transition-colors border-b-2 ${activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>{tab.label}</button>
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`pb-3 text-sm font-bold transition-colors border-b-2 ${activeTab === tab.id
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                >
+                  {tab.label}
+                </button>
               ))}
             </div>
             {activeTab === 'inbody' && (
@@ -803,59 +833,59 @@ export default function Clients({ focus, onFocusConsumed }) {
                       </>
                     )}
                 </div>
-             <div className="border border-slate-800 rounded-xl bg-slate-950 p-3 space-y-2">
-  <textarea
-    value={smsText}
-    onChange={(e) => setSmsText(e.target.value)}
-    rows={smsExpanded ? 6 : 2}
-    placeholder="Type a message..."
-    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none resize-y min-h-[48px]"
-  />
+                <div className="border border-slate-800 rounded-xl bg-slate-950 p-3 space-y-2">
+                  <textarea
+                    value={smsText}
+                    onChange={(e) => setSmsText(e.target.value)}
+                    rows={smsExpanded ? 6 : 2}
+                    placeholder="Type a message..."
+                    className="w-full bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none resize-y min-h-[48px]"
+                  />
 
-  <div className="flex items-center justify-between gap-2 flex-wrap">
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => setSmsExpanded((v) => !v)}
-        className="text-[11px] font-bold text-slate-400 hover:text-white"
-      >
-        {smsExpanded ? 'Collapse' : 'Expand'}
-      </button>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSmsExpanded((v) => !v)}
+                        className="text-[11px] font-bold text-slate-400 hover:text-white"
+                      >
+                        {smsExpanded ? 'Collapse' : 'Expand'}
+                      </button>
 
-      <label className="cursor-pointer text-[11px] font-bold text-blue-400 hover:text-blue-300">
-        {smsFile ? 'Change photo' : 'Attach photo'}
-        <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => setSmsFile(e.target.files?.[0] || null)}
-        />
-      </label>
+                      <label className="cursor-pointer text-[11px] font-bold text-blue-400 hover:text-blue-300">
+                        {smsFile ? 'Change photo' : 'Attach photo'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => setSmsFile(e.target.files?.[0] || null)}
+                        />
+                      </label>
 
-      {smsFile && (
-        <span className="text-[11px] text-slate-400 truncate max-w-[140px]">
-          {smsFile.name}
-          <button
-            type="button"
-            className="ml-1 text-red-400"
-            onClick={() => setSmsFile(null)}
-          >
-            ×
-          </button>
-        </span>
-      )}
-    </div>
+                      {smsFile && (
+                        <span className="text-[11px] text-slate-400 truncate max-w-[140px]">
+                          {smsFile.name}
+                          <button
+                            type="button"
+                            className="ml-1 text-red-400"
+                            onClick={() => setSmsFile(null)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )}
+                    </div>
 
-    <button
-      type="button"
-      onClick={handleSendSms}
-      disabled={isSendingSms || (!smsText.trim() && !smsFile)}
-      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
-    >
-      {isSendingSms ? 'Sending...' : 'Send'}
-    </button>
-  </div>
-</div>
+                    <button
+                      type="button"
+                      onClick={handleSendSms}
+                      disabled={isSendingSms || (!smsText.trim() && !smsFile)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+                    >
+                      {isSendingSms ? 'Sending...' : 'Send'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -871,17 +901,16 @@ export default function Clients({ focus, onFocusConsumed }) {
                     ))}
               </div>
             )}
+            {activeTab === 'payments' && (isOwner || currentUserRole === 'Owner') && selectedClient && (
+              <ClientPayrollPanel
+                client={selectedClient}
+                coaches={payrollCoaches}
+              />
+            )}
           </>
         ) : (
           <div className="text-center py-24 text-slate-500">Select a client from the left roster.</div>
         )}
-        {/* OWNER PAYROLL PANEL — paste here */}
-    {(isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner') && (
-      <ClientPayrollPanel
-        client={selectedClient}
-        coaches={payrollCoaches}
-      />
-    )}
       </main>
 
       {isClientModalOpen && (
@@ -892,31 +921,31 @@ export default function Clients({ focus, onFocusConsumed }) {
               <button onClick={() => setIsClientModalOpen(false)} className="text-slate-400 hover:text-white text-xl">×</button>
             </div>
             <div className="space-y-3">
-                <div>
-  <label className="text-xs text-slate-400 font-medium">Full Name *</label>
-  <input
-    type="text"
-    value={clientForm.name}
-    onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })}
-    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-  />
-</div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">Full Name *</label>
+                <input
+                  type="text"
+                  value={clientForm.name}
+                  onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })}
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
 
-<div>
-  <label className="text-xs text-slate-400 font-medium">
-    Name aliases (payroll / nicknames)
-  </label>
-  <input
-    type="text"
-    value={clientForm.nameAliases || ''}
-    onChange={(e) => setClientForm({ ...clientForm, nameAliases: e.target.value })}
-    placeholder="Abi Guaren, Abi G"
-    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-  />
-  <p className="text-[10px] text-slate-500 mt-1">
-    Comma-separated. Matches automated payroll names to this client.
-  </p>
-</div>
+              <div>
+                <label className="text-xs text-slate-400 font-medium">
+                  Name aliases (payroll / nicknames)
+                </label>
+                <input
+                  type="text"
+                  value={clientForm.nameAliases || ''}
+                  onChange={(e) => setClientForm({ ...clientForm, nameAliases: e.target.value })}
+                  placeholder="Abi Guaren, Abi G"
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Comma-separated. Matches automated payroll names to this client.
+                </p>
+              </div>
               <div><label className="text-xs text-slate-400 font-medium">Email</label><input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div><label className="text-xs text-slate-400 font-medium">Phone</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div>
@@ -1120,7 +1149,7 @@ export default function Clients({ focus, onFocusConsumed }) {
               <h3 className="text-lg font-bold text-white">{editingHabit ? 'Edit Habit' : 'Habit Library'}</h3>
               <button onClick={() => { setIsHabitLibraryOpen(false); setEditingHabit(null); }} className="text-slate-400 hover:text-white text-xl">×</button>
             </div>
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+                    <div className="p-4 pt-14 pl-14 md:pt-4 md:pl-4 border-b border-slate-800 space-y-3">
               <input type="text" placeholder="Habit name" value={habitForm.name} onChange={(e) => setHabitForm({ ...habitForm, name: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
               <select value={habitForm.category} onChange={(e) => setHabitForm({ ...habitForm, category: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
                 <option value="Nutrition">Nutrition</option><option value="Hydration">Hydration</option><option value="Sleep">Sleep</option><option value="Movement">Movement</option><option value="Mindset">Mindset</option>
@@ -1171,7 +1200,7 @@ export default function Clients({ focus, onFocusConsumed }) {
       {compareScans.length === 2 && <InBodyCompareModal scanA={compareScans[0]} scanB={compareScans[1]} onClose={() => { setCompareScans([]); setIsCompareMode(false); }} />}
       <AdminInBodyUploadModal isOpen={isAdminUploadOpen} onClose={() => setIsAdminUploadOpen(false)} clients={clients} onComplete={() => { }} />
     </div>
-    
+
   );
-  
+
 }
