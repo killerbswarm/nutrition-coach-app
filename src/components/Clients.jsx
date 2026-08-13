@@ -199,7 +199,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [isFindingGhl, setIsFindingGhl] = useState(false);
-  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active', nameAliases: '', });
+  const [clientForm, setClientForm] = useState({ name: '', email: '', phone: '', coach: '', ghlContactId: '', status: 'active', nameAliases: '', mfpUsername: '', });
   const [coaches, setCoaches] = useState([]);
   const [habits, setHabits] = useState([]);
   const [clientHabits, setClientHabits] = useState([]);
@@ -279,7 +279,7 @@ export default function Clients({ focus, onFocusConsumed }) {
     return () => unsub();
   }, [selectedClient]);
 
-    useEffect(() => {
+  useEffect(() => {
     if (!focus?.clientId || clients.length === 0) return;
 
     const match = clients.find((c) => c.id === focus.clientId);
@@ -328,7 +328,7 @@ export default function Clients({ focus, onFocusConsumed }) {
     fetchGhl();
   }, [selectedClient]);
 
-    useEffect(() => {
+  useEffect(() => {
     if (!selectedClient) return;
     if (currentUserRole === 'Owner') return;
 
@@ -348,7 +348,7 @@ export default function Clients({ focus, onFocusConsumed }) {
     }
   }, [ghlData.messages, activeTab]);
 
-   const roleFilteredClients = clients.filter((c) => {
+  const roleFilteredClients = clients.filter((c) => {
     if (currentUserRole === 'Owner') return true;
     // Coach: only clients assigned to this login (must have matching coachId)
     return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
@@ -417,7 +417,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   })();
   const openAddClient = () => {
     setEditingClient(null);
-    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '', status: 'active', nameAliases: '', });
+    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '', status: 'active', nameAliases: '', mfpUsername: '', });
     setIsClientModalOpen(true);
   };
   const openEditClient = (c) => {
@@ -433,6 +433,7 @@ export default function Clients({ focus, onFocusConsumed }) {
       nameAliases: Array.isArray(c.nameAliases)
         ? c.nameAliases.join(', ')
         : (c.nameAliases || ''),
+      mfpUsername: c.mfpUsername || '',
     });
     setIsClientModalOpen(true);
   };
@@ -486,6 +487,7 @@ export default function Clients({ focus, onFocusConsumed }) {
         coachId: clientForm.coachId || '',
         ghlContactId: clientForm.ghlContactId.trim(),
         status: clientForm.status || 'active',
+        mfpUsername: (clientForm.mfpUsername || '').trim().replace(/^@/, ''),
         nameAliases: String(clientForm.nameAliases || '')
           .split(',')
           .map((s) => s.trim())
@@ -597,7 +599,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   const currentGhlId = selectedClient?.ghlContactId || selectedClient?.ghlId || selectedClient?.ghl || selectedClient?.contactId || 'N/A';
 
   return (
-   <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
+    <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
       <section
         className={`
           w-full md:w-72 border-r border-slate-800 bg-slate-900/50 flex-col
@@ -641,16 +643,16 @@ export default function Clients({ focus, onFocusConsumed }) {
                           if (e.key === 'Enter' || e.key === ' ') setSelectedClient(c);
                         }}
                         className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between gap-2 cursor-pointer ${selectedClient?.id === c.id
-                            ? 'bg-blue-600/20 border-blue-500/40'
-                            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                          ? 'bg-blue-600/20 border-blue-500/40'
+                          : 'bg-slate-950 border-slate-800 hover:border-slate-700'
                           }`}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span className="font-bold text-sm text-white truncate">{c.name}</span>
                           <span
                             className={`shrink-0 px-2 py-0.5 text-[10px] font-bold rounded-full border ${(c.status || 'active') === 'active'
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                : 'bg-slate-700/50 text-slate-400 border-slate-600'
+                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                              : 'bg-slate-700/50 text-slate-400 border-slate-600'
                               }`}
                           >
                             {(c.status || 'active') === 'active' ? 'Active' : 'Inactive'}
@@ -677,7 +679,7 @@ export default function Clients({ focus, onFocusConsumed }) {
         </div>
       </section>
 
-            <main
+      <main
         className={`
           flex-1 flex-col overflow-y-auto bg-slate-950 p-4 md:p-6 min-w-0
           ${selectedClient ? 'flex' : 'hidden md:flex'}
@@ -685,7 +687,7 @@ export default function Clients({ focus, onFocusConsumed }) {
       >
         {selectedClient ? (
           <>
-          <button
+            <button
               type="button"
               onClick={() => setSelectedClient(null)}
               className="md:hidden mb-3 text-sm font-bold text-blue-400 text-left"
@@ -698,7 +700,6 @@ export default function Clients({ focus, onFocusConsumed }) {
                   <h2 className="text-2xl font-black text-white">{selectedClient.name}</h2>
                   <span className="px-3 py-1 text-xs font-semibold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Coach: {selectedClient.coach || 'Unassigned'}</span>
                 </div>
-                <div className="text-xs text-slate-400 mt-1">Email: {selectedClient.email || 'N/A'} | Phone: {selectedClient.phone || 'N/A'} | GHL ID: {currentGhlId}</div>
               </div>
               {currentUserRole === 'Owner' && (
                 <button onClick={() => setIsAdminUploadOpen(true)} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg">Owner Admin: Upload Master CSV</button>
@@ -712,6 +713,7 @@ export default function Clients({ focus, onFocusConsumed }) {
                 { id: 'appointments', label: `Appointments (${clientBookings.length})` },
                 { id: 'messages', label: `SMS (${ghlData.messages.length})` },
                 { id: 'notes', label: `Notes (${ghlData.notes.length})` },
+                { id: 'foodlog', label: 'Food log' },
                 ...((isOwner || currentUserRole === 'Owner')
                   ? [{ id: 'payments', label: 'Payments' }]
                   : []),
@@ -721,8 +723,8 @@ export default function Clients({ focus, onFocusConsumed }) {
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={`pb-3 text-sm font-bold transition-colors border-b-2 ${activeTab === tab.id
-                      ? 'border-blue-500 text-blue-400'
-                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
                 >
                   {tab.label}
@@ -771,6 +773,38 @@ export default function Clients({ focus, onFocusConsumed }) {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'foodlog' && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50">
+                  <h3 className="text-sm font-bold text-white mb-1">MyFitnessPal</h3>
+                  <p className="text-xs text-slate-400 mb-3">
+                    Clients log food in MyFitnessPal. Open their diary if it is public or shared with you.
+                  </p>
+
+                  {selectedClient.mfpUsername ? (
+                    <>
+                      <div className="text-xs text-slate-300 mb-3">
+                        Username:{' '}
+                        <span className="font-bold text-white">{selectedClient.mfpUsername}</span>
+                      </div>
+                      <a
+                        href={`https://www.myfitnesspal.com/food/diary/${encodeURIComponent(selectedClient.mfpUsername)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold"
+                      >
+                        Open MFP diary ↗
+                      </a>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      No MyFitnessPal username on file. Edit this client and add their MFP username.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -974,6 +1008,7 @@ export default function Clients({ focus, onFocusConsumed }) {
               </div>
               <div><label className="text-xs text-slate-400 font-medium">Email</label><input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div><label className="text-xs text-slate-400 font-medium">Phone</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
+              <div><label className="text-xs text-slate-400 font-medium">MFP Username</label><input type="text" value={clientForm.mfpUsername} onChange={(e) => setClientForm({ ...clientForm, mfpUsername: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Assigned Coach</label>
                 <select
@@ -1175,7 +1210,7 @@ export default function Clients({ focus, onFocusConsumed }) {
               <h3 className="text-lg font-bold text-white">{editingHabit ? 'Edit Habit' : 'Habit Library'}</h3>
               <button onClick={() => { setIsHabitLibraryOpen(false); setEditingHabit(null); }} className="text-slate-400 hover:text-white text-xl">×</button>
             </div>
-                    <div className="p-4 border-b border-slate-800 space-y-3">
+            <div className="p-4 border-b border-slate-800 space-y-3">
               <input type="text" placeholder="Habit name" value={habitForm.name} onChange={(e) => setHabitForm({ ...habitForm, name: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
               <select value={habitForm.category} onChange={(e) => setHabitForm({ ...habitForm, category: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
                 <option value="Nutrition">Nutrition</option><option value="Hydration">Hydration</option><option value="Sleep">Sleep</option><option value="Movement">Movement</option><option value="Mindset">Mindset</option>
