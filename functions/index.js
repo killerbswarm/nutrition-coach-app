@@ -461,6 +461,224 @@ exports.searchGhlContacts = onRequest({ cors: true, invoker: "public" }, async (
   }
 });
 
+const GHL_CALENDAR_ID = process.env.GHL_CALENDAR_ID || "FRepS6g9Esd8GRGSg3jQ";
+
+function bookingToStartEnd(data) {
+  const date = data.date; // YYYY-MM-DD
+  const time = (data.time || "10:00").slice(0, 5); // HH:mm
+  const mins = Number(data.durationMinutes) || 15;
+
+  const [h, m] = time.split(":").map(Number);
+  const startMin = h * 60 + m;
+  const endMin = startMin + mins;
+  const eh = String(Math.floor(endMin / 60)).padStart(2, "0");
+  const em = String(endMin % 60).padStart(2, "0");
+
+  // Eastern time. If times are off by 1h in winter, switch to -05:00
+  const offset = "-04:00";
+
+  return {
+    startTime: `${date}T${time}:00${offset}`,
+    endTime: `${date}T${eh}:${em}:00${offset}`,
+  };
+}
+
+async function ghlCreateAppointment(data) {
+  const contactId = data.ghlContactId;
+  if (!contactId || !GHL_CALENDAR_ID) {
+    console.log("GHL create skipped: missing ghlContactId or GHL_CALENDAR_ID");
+    return null;
+  }
+
+  const { startTime, endTime } = bookingToStartEnd(data);
+
+  const body = {
+    calendarId: GHL_CALENDAR_ID,
+    locationId: GHL_LOCATION_ID,
+    assignedUserId: data.ghlAssignedUserId || "xMvRtd4w6phpplFJw6is",
+    contactId,
+    startTime,
+    endTime,
+    title: data.appointmentTypeName || "Nutrition Appointment",
+    appointmentStatus: "confirmed",
+    description: [
+      data.clientName && `Client: ${data.clientName}`,
+      data.roomName && `Room: ${data.roomName}`,
+      data.coach && `Coach: ${data.coach}`,
+      data.notes && `Notes: ${data.notes}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    address: data.roomName || "",
+    ignoreFreeSlotValidation: true,
+    ignoreDateRange: true,
+    toNotify: true, // REQUIRED for GHL automations
+  };
+
+  const res = await fetch(
+    "https://services.leadconnectorhq.com/calendars/events/appointments",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GHL_API_TOKEN}`,
+        Version: GHL_API_VERSION,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error("GHL create failed", res.status, json);
+    return null;
+  }
+
+  return json.id || json.appointment?.id || json.event?.id || null;
+}
+
+async function ghlUpdateAppointment(eventId, data) {
+  if (!eventId || !data.ghlContactId || !GHL_CALENDAR_ID) return;
+
+  const { startTime, endTime } = bookingToStartEnd(data);
+
+  const body = {
+    calendarId: GHL_CALENDAR_ID,
+    locationId: GHL_LOCATION_ID,
+    assignedUserId: data.ghlAssignedUserId || "xMvRtd4w6phpplFJw6is",
+    contactId: data.ghlContactId,
+    startTime,
+    endTime,
+    title: data.appointmentTypeName || "Nutrition Appointment",
+    appointmentStatus: "confirmed",
+    description: [
+      data.clientName && `Client: ${data.clientName}`,
+      data.roomName && `Room: ${data.roomName}`,
+      data.coach && `Coach: ${data.coach}`,
+      data.notes && `Notes: ${data.notes}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    toNotify: true,
+    ignoreFreeSlotValidation: true,
+  };
+
+  const res = await fetch(
+    `https://services.leadconnectorhq.com/calendars/events/appointments/${eventId}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${GHL_API_TOKEN}`,
+        Version: GHL_API_VERSION,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!res.ok) {
+    console.error("GHL update failed", res.status, await res.text());
+  }
+}
+
+async function ghlDeleteAppointment(eventId) {
+  if (!eventId) return;
+
+  const res = await fetch(
+    `https://services.leadconnectorhq.com/calendars/events/${eventId}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${GHL_API_TOKEN}`,
+        Version: GHL_API_VERSION,
+        Accept: "application/json",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    console.error("GHL delete failed", res.status, await res.text());
+  }
+}
+
+
+exports.syncBookingCreateToGhl = onDocumentCreated(
+  "bookings/{bookingId}",
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+    if (data.ghlAppointmentId) return; // already synced
+
+    const ghlId = await ghlCreateAppointment(data);
+    console.log("GHL create result", ghlId);
+    if (ghlId) {
+      await event.data.ref.set({ ghlAppointmentId: ghlId }, { merge: true });
+    }
+  }
+);
+
+exports.syncBookingUpdateToGhl = onDocumentUpdated(
+  "bookings/{bookingId}",
+  async (event) => {
+    const before = event.data?.before?.data() || {};
+    const after = event.data?.after?.data();
+    if (!after) return;
+
+    // Ignore writes that only set sync metadata (stops double-create)
+    const ignore = new Set([
+      "ghlAppointmentId",
+      "googleEventId",
+      "googleSyncAt",
+      "updatedAt",
+    ]);
+    const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    const changed = [...allKeys].filter(
+      (k) =>
+        !ignore.has(k) &&
+        JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null)
+    );
+    if (changed.length === 0) {
+      console.log("GHL update skipped: sync-only change");
+      return;
+    }
+
+    // Already in GHL → update only
+    if (after.ghlAppointmentId) {
+      await ghlUpdateAppointment(after.ghlAppointmentId, after);
+      return;
+    }
+
+    // No GHL id yet (legacy booking) → create once
+    const ghlId = await ghlCreateAppointment(after);
+    console.log("GHL create-from-update result", ghlId);
+    if (ghlId) {
+      await event.data.after.ref.set({ ghlAppointmentId: ghlId }, { merge: true });
+    }
+  }
+);
+
+exports.syncBookingDeleteToGhl = onDocumentDeleted(
+  "bookings/{bookingId}",
+  async (event) => {
+    const data = event.data?.data();
+    if (!data?.ghlAppointmentId) return;
+    await ghlDeleteAppointment(data.ghlAppointmentId);
+  }
+);
+
+exports.syncBookingCreateToGhl = onDocumentCreated("bookings/{bookingId}", async (event) => {
+  const data = event.data?.data();
+  if (!data) return;
+  if (data.ghlAppointmentId) return; // already synced
+
+  const ghlId = await ghlCreateAppointment(data);
+  if (ghlId) {
+    await event.data.ref.set({ ghlAppointmentId: ghlId }, { merge: true });
+  }
+});
+
 // =========================================================================
 // ENDPOINT 7: InBody Webhook
 // =========================================================================
