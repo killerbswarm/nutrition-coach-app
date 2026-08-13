@@ -10,14 +10,38 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
 import AdminInBodyUploadModal from './AdminInBodyUploadModal';
 import InBodyCompareModal from './InBodyCompareModal';
 import { useAuth } from '../context/AuthContext';
 import ClientPayrollPanel from './ClientPayrollPanel';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
+const MEASUREMENT_FIELDS = [
+  { key: 'neck', label: 'Neck' },
+  { key: 'shoulder', label: 'Shoulder' },
+  { key: 'rBicep', label: 'R. Bicep' },
+  { key: 'lBicep', label: 'L. Bicep' },
+  { key: 'chest', label: 'Chest' },
+  { key: 'waist', label: 'Waist' },
+  { key: 'hips', label: 'Hips' },
+  { key: 'rThigh', label: 'R. Thigh' },
+  { key: 'lThigh', label: 'L. Thigh' },
+  { key: 'rCalf', label: 'R. Calf' },
+  { key: 'lCalf', label: 'L. Calf' },
+];
+
+const emptyMeasurementForm = () => {
+  const o = {
+    date: new Date().toISOString().split('T')[0],
+    notes: '',
+  };
+  MEASUREMENT_FIELDS.forEach((f) => {
+    o[f.key] = '';
+  });
+  return o;
+};
 
 const handleSendSms = async () => {
   if (!selectedClient?.ghlContactId) {
@@ -172,6 +196,208 @@ function InBodyProgressChart({ scans }) {
     </div>
   );
 }
+
+function MeasurementBodyMap({ measurement, onClose }) {
+  if (!measurement) return null;
+
+  const v = (key) => {
+    const n = measurement[key];
+    return n != null && n !== '' ? String(n) : '—';
+  };
+
+  // value shown on body; full labels in the side list
+  const pins = [
+    { key: 'neck', label: 'Neck', x: 50, y: 11 },
+    { key: 'shoulder', label: 'Shoulder', x: 78, y: 18 },
+    { key: 'chest', label: 'Chest', x: 50, y: 26 },
+    { key: 'lBicep', label: 'L. Bicep', x: 18, y: 32 },
+    { key: 'rBicep', label: 'R. Bicep', x: 82, y: 32 },
+    { key: 'waist', label: 'Waist', x: 50, y: 40 },
+    { key: 'hips', label: 'Hips', x: 50, y: 50 },
+    { key: 'lThigh', label: 'L. Thigh', x: 34, y: 64 },
+    { key: 'rThigh', label: 'R. Thigh', x: 66, y: 64 },
+    { key: 'lCalf', label: 'L. Calf', x: 34, y: 82 },
+    { key: 'rCalf', label: 'R. Calf', x: 66, y: 82 },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-5 shadow-2xl max-h-[92vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-white">Measurements</h3>
+            <p className="text-sm text-slate-300">{measurement.date}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-300 hover:text-white text-2xl leading-none px-2"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          {/* Body */}
+          <div className="relative mx-auto w-full max-w-[260px] aspect-[1/2.1] bg-slate-950 rounded-2xl border border-slate-800">
+            <svg
+              viewBox="0 0 100 210"
+              className="absolute inset-0 w-full h-full"
+              aria-hidden
+            >
+              <ellipse cx="50" cy="18" rx="11" ry="13" fill="#334155" />
+              <rect x="45" y="28" width="10" height="8" rx="2" fill="#334155" />
+              <path d="M32 36 L68 36 L72 95 L28 95 Z" fill="#334155" />
+              <path d="M32 38 L18 42 L14 78 L24 78 L30 55 Z" fill="#334155" />
+              <path d="M68 38 L82 42 L86 78 L76 78 L70 55 Z" fill="#334155" />
+              <path d="M28 95 L72 95 L68 120 L55 120 L50 100 L45 120 L32 120 Z" fill="#334155" />
+              <path d="M32 120 L44 120 L42 195 L30 195 Z" fill="#334155" />
+              <path d="M56 120 L68 120 L70 195 L58 195 Z" fill="#334155" />
+            </svg>
+
+            {pins.map((p) => (
+              <div
+                key={p.key}
+                className="absolute -translate-x-1/2 -translate-y-1/2"
+                style={{ left: `${p.x}%`, top: `${p.y}%` }}
+              >
+                <div className="min-w-[2.25rem] px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[11px] font-black text-center shadow-lg border border-blue-400/50">
+                  {v(p.key)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Readable list */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+              All sites (inches)
+            </div>
+            {pins.map((p) => (
+              <div
+                key={p.key}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800"
+              >
+                <span className="text-sm font-semibold text-slate-200">{p.label}</span>
+                <span className="text-sm font-black text-blue-400 tabular-nums">
+                  {v(p.key)}
+                </span>
+              </div>
+            ))}
+            {measurement.notes ? (
+              <p className="text-sm text-slate-300 mt-3 pt-3 border-t border-slate-800">
+                {measurement.notes}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full py-2.5 text-sm font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-white"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MeasurementCompareModal({ a, b, onClose }) {
+  if (!a || !b) return null;
+
+  // older left, newer right by date
+  const [left, right] = a.date <= b.date ? [a, b] : [b, a];
+
+  const val = (m, key) => {
+    const n = m[key];
+    return n != null && n !== '' ? Number(n) : null;
+  };
+
+  const delta = (key) => {
+    const x = val(left, key);
+    const y = val(right, key);
+    if (x == null || y == null) return null;
+    return Math.round((y - x) * 100) / 100;
+  };
+
+  const fields = [
+    { key: 'neck', label: 'Neck' },
+    { key: 'shoulder', label: 'Shoulder' },
+    { key: 'rBicep', label: 'R. Bicep' },
+    { key: 'lBicep', label: 'L. Bicep' },
+    { key: 'chest', label: 'Chest' },
+    { key: 'waist', label: 'Waist' },
+    { key: 'hips', label: 'Hips' },
+    { key: 'rThigh', label: 'R. Thigh' },
+    { key: 'lThigh', label: 'L. Thigh' },
+    { key: 'rCalf', label: 'R. Calf' },
+    { key: 'lCalf', label: 'L. Calf' },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-5 max-h-[92vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-white">Compare measurements</h3>
+          <button type="button" onClick={onClose} className="text-slate-300 hover:text-white text-2xl">
+            ×
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center text-xs font-bold text-slate-400 mb-2 px-1">
+          <div>{left.date}</div>
+          <div>Change</div>
+          <div>{right.date}</div>
+        </div>
+
+        <div className="space-y-1.5">
+          {fields.map((f) => {
+            const d = delta(f.key);
+            const x = val(left, f.key);
+            const y = val(right, f.key);
+            const dColor =
+              d == null ? 'text-slate-500' : d < 0 ? 'text-emerald-400' : d > 0 ? 'text-amber-400' : 'text-slate-300';
+            return (
+              <div
+                key={f.key}
+                className="grid grid-cols-3 gap-2 items-center px-3 py-2 rounded-xl bg-slate-950 border border-slate-800"
+              >
+                <div className="text-sm font-black text-white tabular-nums text-center">
+                  {x != null ? x : '—'}
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">{f.label}</div>
+                  <div className={`text-sm font-black tabular-nums ${dColor}`}>
+                    {d == null ? '—' : d > 0 ? `+${d}` : `${d}`}
+                  </div>
+                </div>
+                <div className="text-sm font-black text-white tabular-nums text-center">
+                  {y != null ? y : '—'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="text-[11px] text-slate-500 mt-3">
+          Negative change (green) = smaller measurement vs older date.
+        </p>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-4 w-full py-2.5 text-sm font-bold rounded-xl bg-slate-800 text-white"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 export default function Clients({ focus, onFocusConsumed }) {
   const { currentUser, isOwner } = useAuth();
   const currentUserRole = isOwner ? 'Owner' : 'Coach';
@@ -180,7 +406,7 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [selectedClient, setSelectedClient] = useState(null);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [clientListFilter, setClientListFilter] = useState('active');
-  const [activeTab, setActiveTab] = useState('inbody');
+  const [activeTab, setActiveTab] = useState('overview');
   const [allScans, setAllScans] = useState([]);
   const [selectedScan, setSelectedScan] = useState(null);
   const [isAdminUploadOpen, setIsAdminUploadOpen] = useState(false);
@@ -214,6 +440,21 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [smsFile, setSmsFile] = useState(null);
   const [smsText, setSmsText] = useState('');
   const [payrollCoaches, setPayrollCoaches] = useState([]);
+  const [clientMeasurements, setClientMeasurements] = useState([]);
+  const [measurementForm, setMeasurementForm] = useState(emptyMeasurementForm());
+  const [isMeasurementFormOpen, setIsMeasurementFormOpen] = useState(false);
+  const [savingMeasurement, setSavingMeasurement] = useState(false);
+  const [clientPhotos, setClientPhotos] = useState([]);
+  const [photoLabel, setPhotoLabel] = useState('front');
+  const [photoDate, setPhotoDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [comparePhotos, setComparePhotos] = useState([]); // max 2
+  const [isPhotoCompareOpen, setIsPhotoCompareOpen] = useState(false);
+  const [photoFilter, setPhotoFilter] = useState('all'); // all | front | side | back | other
+  const [zoomedPhoto, setZoomedPhoto] = useState(null); // single photo lightbox
+  const [selectedMeasurement, setSelectedMeasurement] = useState(null);
+  const [compareMeasurements, setCompareMeasurements] = useState([]); // max 2
+  const [isMeasurementCompareOpen, setIsMeasurementCompareOpen] = useState(false);
 
 
   useEffect(() => {
@@ -238,10 +479,35 @@ export default function Clients({ focus, onFocusConsumed }) {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setClients(docs);
-      if (docs.length > 0 && !selectedClient) setSelectedClient(docs[0]);
+      if (docs.length > 0 && !selectedClient) {
+  setSelectedClient(docs[0]);
+  setActiveTab('overview');
+}
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!selectedClient?.id) {
+      setClientMeasurements([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'clients', selectedClient.id, 'measurements'),
+      orderBy('date', 'desc')
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setClientMeasurements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (err) => {
+        console.error('measurements listen', err);
+        setClientMeasurements([]);
+      }
+    );
+    return () => unsub();
+  }, [selectedClient?.id]);
 
   useEffect(() => {
     const q = query(collection(db, 'inbody_scans'), orderBy('scanDate', 'desc'));
@@ -292,9 +558,9 @@ export default function Clients({ focus, onFocusConsumed }) {
       currentUserRole === 'Owner' ||
       (match.coachId && currentUser?.uid && match.coachId === currentUser.uid);
 
-    if (allowed) {
+       if (allowed) {
       setSelectedClient(match);
-      if (focus.tab) setActiveTab(focus.tab);
+      setActiveTab(focus.tab || 'overview');
     }
 
     if (onFocusConsumed) onFocusConsumed();
@@ -347,6 +613,29 @@ export default function Clients({ focus, onFocusConsumed }) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [ghlData.messages, activeTab]);
+
+  useEffect(() => {
+    if (!selectedClient?.id) {
+      setClientPhotos([]);
+      setComparePhotos([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'clients', selectedClient.id, 'photos'),
+      orderBy('takenAt', 'desc')
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setClientPhotos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (err) => {
+        console.error('photos listen', err);
+        setClientPhotos([]);
+      }
+    );
+    return () => unsub();
+  }, [selectedClient?.id]);
 
   const roleFilteredClients = clients.filter((c) => {
     if (currentUserRole === 'Owner') return true;
@@ -596,7 +885,156 @@ export default function Clients({ focus, onFocusConsumed }) {
     try { await deleteDoc(doc(db, 'client_habits', ch.id)); } catch (err) { alert(err.message); }
   };
 
+  const handleSaveMeasurement = async () => {
+    if (!selectedClient?.id) return;
+    if (!measurementForm.date) {
+      alert('Please set a date');
+      return;
+    }
+    setSavingMeasurement(true);
+    try {
+      const data = {
+        date: measurementForm.date,
+        notes: measurementForm.notes || '',
+        createdAt: new Date(),
+      };
+      MEASUREMENT_FIELDS.forEach((f) => {
+        const n = parseFloat(measurementForm[f.key]);
+        data[f.key] = Number.isFinite(n) ? n : null;
+      });
+      await addDoc(collection(db, 'clients', selectedClient.id, 'measurements'), data);
+      setMeasurementForm(emptyMeasurementForm());
+      setIsMeasurementFormOpen(false);
+    } catch (err) {
+      alert('Failed to save measurements: ' + err.message);
+    } finally {
+      setSavingMeasurement(false);
+    }
+  };
+
+  const handleDeleteMeasurement = async (id) => {
+    if (!selectedClient?.id || !id) return;
+    if (!window.confirm('Delete this measurement entry?')) return;
+    try {
+      await deleteDoc(doc(db, 'clients', selectedClient.id, 'measurements', id));
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  };
+
+  const toggleCompareMeasurement = (m) => {
+    setCompareMeasurements((prev) => {
+      if (prev.find((x) => x.id === m.id)) return prev.filter((x) => x.id !== m.id);
+      if (prev.length >= 2) return [prev[1], m];
+      return [...prev, m];
+    });
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedClient?.id) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file');
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `client-photos/${selectedClient.id}/${Date.now()}_${photoLabel}_${safeName}`;
+      const storageRef = ref(storage, path);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      await addDoc(collection(db, 'clients', selectedClient.id, 'photos'), {
+        url,
+        storagePath: path,
+        label: photoLabel,
+        takenAt: photoDate || new Date().toISOString().split('T')[0],
+        createdAt: new Date(),
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Upload failed: ' + err.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photo) => {
+    if (!selectedClient?.id || !photo?.id) return;
+    if (!window.confirm('Delete this photo?')) return;
+    try {
+      if (photo.storagePath) {
+        try {
+          await deleteObject(ref(storage, photo.storagePath));
+        } catch (e) {
+          console.warn('Storage delete', e);
+        }
+      }
+      await deleteDoc(doc(db, 'clients', selectedClient.id, 'photos', photo.id));
+      setComparePhotos((prev) => prev.filter((p) => p.id !== photo.id));
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  };
+
+  const toggleComparePhoto = (photo) => {
+    setComparePhotos((prev) => {
+      if (prev.find((p) => p.id === photo.id)) {
+        return prev.filter((p) => p.id !== photo.id);
+      }
+      if (prev.length >= 2) {
+        return [prev[1], photo];
+      }
+      return [...prev, photo];
+    });
+  };
+
   const currentGhlId = selectedClient?.ghlContactId || selectedClient?.ghlId || selectedClient?.ghl || selectedClient?.contactId || 'N/A';
+
+  const filteredPhotos =
+    photoFilter === 'all'
+      ? clientPhotos
+      : clientPhotos.filter((p) => (p.label || 'other') === photoFilter);
+
+  const photosByDate = filteredPhotos.reduce((acc, photo) => {
+    const d = photo.takenAt || 'Unknown';
+    if (!acc[d]) acc[d] = [];
+    acc[d].push(photo);
+    return acc;
+  }, {});
+
+  const photoDateKeys = Object.keys(photosByDate).sort((a, b) => (a < b ? 1 : -1));
+
+    const latestScan = clientScans[0] || null;
+  const prevScan = clientScans[1] || null;
+  const nextAppt = [...clientBookings]
+    .filter((b) => {
+      const t = new Date(`${b.date}T${b.time || '00:00'}`);
+      return t >= new Date();
+    })
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))[0];
+  const latestMeasurement = clientMeasurements[0] || null;
+  const latestPhoto = clientPhotos[0] || null;
+  const lastMessage = (() => {
+    const msgs = Array.isArray(ghlData.messages) ? ghlData.messages : [];
+    if (!msgs.length) return null;
+    // Prefer newest by date if present
+    const sorted = [...msgs].sort((a, b) => {
+      const ta = new Date(a.dateAdded || a.createdAt || a.timestamp || a.date || 0).getTime();
+      const tb = new Date(b.dateAdded || b.createdAt || b.timestamp || b.date || 0).getTime();
+      return tb - ta; // newest first
+    });
+    return sorted[0];
+  })();
+
+    const activeHabitsList = clientHabits.filter(
+    (h) => (h.status || 'active') === 'active'
+  );
+
+    const activeHabitsCount = (clientHabits || []).filter(
+    (h) => (h.status || 'active') === 'active'
+  ).length;
 
   return (
     <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
@@ -638,9 +1076,15 @@ export default function Clients({ focus, onFocusConsumed }) {
                         key={c.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setSelectedClient(c)}
+                        onClick={() => {
+  setSelectedClient(c);
+  setActiveTab('overview');
+}}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') setSelectedClient(c);
+                          if (e.key === 'Enter' || e.key === ' ') {
+  setSelectedClient(c);
+  setActiveTab('overview');
+}
                         }}
                         className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between gap-2 cursor-pointer ${selectedClient?.id === c.id
                           ? 'bg-blue-600/20 border-blue-500/40'
@@ -708,12 +1152,15 @@ export default function Clients({ focus, onFocusConsumed }) {
 
             <div className="flex border-b border-slate-800 mb-6 gap-6 flex-wrap">
               {[
+                { id: 'overview', label: 'Overview' },
                 { id: 'inbody', label: `InBody Scans (${clientScans.length})` },
                 { id: 'habits', label: `Habits (${clientHabits.length})` },
                 { id: 'appointments', label: `Appointments (${clientBookings.length})` },
                 { id: 'messages', label: `SMS (${ghlData.messages.length})` },
                 { id: 'notes', label: `Notes (${ghlData.notes.length})` },
                 { id: 'foodlog', label: 'Food log' },
+                { id: 'measurements', label: 'Measurements' },
+                { id: 'photos', label: 'Photos' },
                 ...((isOwner || currentUserRole === 'Owner')
                   ? [{ id: 'payments', label: 'Payments' }]
                   : []),
@@ -807,6 +1254,604 @@ export default function Clients({ focus, onFocusConsumed }) {
                 </div>
               </div>
             )}
+
+            {activeTab === 'measurements' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-slate-300">
+                    Body measurements ({clientMeasurements.length})
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMeasurementForm(emptyMeasurementForm());
+                      setIsMeasurementFormOpen(true);
+                    }}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+                  >
+                    + Log measurements
+                  </button>
+                  <button
+                    type="button"
+                    disabled={compareMeasurements.length !== 2}
+                    onClick={() => setIsMeasurementCompareOpen(true)}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-700 text-white disabled:opacity-40"
+                  >
+                    Compare ({compareMeasurements.length}/2)
+                  </button>
+                </div>
+
+                {isMeasurementFormOpen && (
+                  <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900 space-y-3">
+                    <div>
+                      <label className="text-xs text-slate-400 font-medium">Date</label>
+                      <input
+                        type="date"
+                        value={measurementForm.date}
+                        onChange={(e) =>
+                          setMeasurementForm({ ...measurementForm, date: e.target.value })
+                        }
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {MEASUREMENT_FIELDS.map((f) => (
+                        <div key={f.key}>
+                          <label className="text-xs text-slate-400 font-medium">{f.label}</label>
+                          <input
+                            type="number"
+                            step="0.25"
+                            inputMode="decimal"
+                            value={measurementForm[f.key]}
+                            onChange={(e) =>
+                              setMeasurementForm({ ...measurementForm, [f.key]: e.target.value })
+                            }
+                            placeholder="in"
+                            className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-medium">Notes</label>
+                      <input
+                        type="text"
+                        value={measurementForm.notes}
+                        onChange={(e) =>
+                          setMeasurementForm({ ...measurementForm, notes: e.target.value })
+                        }
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsMeasurementFormOpen(false)}
+                        className="flex-1 py-2 text-sm font-semibold rounded-xl bg-slate-800 text-slate-300"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveMeasurement}
+                        disabled={savingMeasurement}
+                        className="flex-1 py-2 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+                      >
+                        {savingMeasurement ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {clientMeasurements.length === 0 ? (
+                  <div className="text-center py-12 border border-dashed border-slate-800 rounded-2xl text-sm text-slate-400">
+                    No measurements logged yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {clientMeasurements.map((m) => (
+                      <div
+                        key={m.id}
+                        className="bg-slate-900 border border-slate-800 p-4 rounded-2xl"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMeasurement(m)}
+                            className="text-left flex-1 min-w-0"
+                          >
+                            <div className="text-xs font-semibold text-blue-400 hover:text-blue-300">
+                              {m.date} · View on body →
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleCompareMeasurement(m);
+                            }}
+                            className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border ${compareMeasurements.some((x) => x.id === m.id)
+                                ? 'bg-blue-600 text-white border-blue-500'
+                                : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
+                              }`}
+                          >
+                            {compareMeasurements.some((x) => x.id === m.id) ? '✓ Compare' : '+ Compare'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMeasurement(m.id)}
+                            className="p-1 text-slate-400 hover:text-red-400 text-xs"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMeasurement(m)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                            {MEASUREMENT_FIELDS.map((f) =>
+                              m[f.key] != null && m[f.key] !== '' ? (
+                                <div key={f.key}>
+                                  <span className="text-[10px] text-slate-500 uppercase font-bold mr-1">
+                                    {f.label}
+                                  </span>
+                                  <span className="font-bold text-slate-100">{m[f.key]}</span>
+                                </div>
+                              ) : null
+                            )}
+                          </div>
+                          {m.notes ? (
+                            <p className="text-xs text-slate-500 mt-2">{m.notes}</p>
+                          ) : null}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'photos' && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-300">
+                      Progress photos ({filteredPhotos.length}
+                      {photoFilter !== 'all' ? ` · ${photoFilter}` : ''})
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Tap a photo to zoom. Use + to select two, then Compare.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div>
+                      <label className="text-[10px] text-slate-500 font-bold uppercase">Date</label>
+                      <input
+                        type="date"
+                        value={photoDate}
+                        onChange={(e) => setPhotoDate(e.target.value)}
+                        className="block mt-0.5 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 font-bold uppercase">Angle</label>
+                      <select
+                        value={photoLabel}
+                        onChange={(e) => setPhotoLabel(e.target.value)}
+                        className="block mt-0.5 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white"
+                      >
+                        <option value="front">Front</option>
+                        <option value="side">Side</option>
+                        <option value="back">Back</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <label className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white cursor-pointer">
+                      {uploadingPhoto ? 'Uploading…' : '+ Upload'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingPhoto}
+                        onChange={handlePhotoUpload}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={comparePhotos.length !== 2}
+                      onClick={() => setIsPhotoCompareOpen(true)}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-700 text-white disabled:opacity-40"
+                    >
+                      Compare ({comparePhotos.length}/2)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'front', label: 'Front' },
+                    { id: 'side', label: 'Side' },
+                    { id: 'back', label: 'Back' },
+                    { id: 'other', label: 'Other' },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setPhotoFilter(f.id)}
+                      className={`px-3 py-1 text-[11px] font-bold rounded-lg border ${photoFilter === f.id
+                          ? 'bg-blue-600 text-white border-blue-500'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {photoDateKeys.length === 0 ? (
+                  <div className="text-center py-12 border border-dashed border-slate-800 rounded-2xl text-sm text-slate-400">
+                    No photos{photoFilter !== 'all' ? ` for “${photoFilter}”` : ' yet'}.
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {photoDateKeys.map((dateKey) => (
+                      <div key={dateKey}>
+                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                          {dateKey}
+                          <span className="text-slate-600 font-medium normal-case ml-2">
+                            ({photosByDate[dateKey].length})
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                          {photosByDate[dateKey].map((photo) => {
+                            const selected = comparePhotos.some((p) => p.id === photo.id);
+                            return (
+                              <div
+                                key={photo.id}
+                                className={`relative rounded-xl border overflow-hidden bg-slate-900 ${selected
+                                    ? 'border-blue-500 ring-1 ring-blue-500/50'
+                                    : 'border-slate-800'
+                                  }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setZoomedPhoto(photo)}
+                                  className="block w-full aspect-square bg-slate-950"
+                                  title="Zoom"
+                                >
+                                  <img
+                                    src={photo.url}
+                                    alt={photo.label}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </button>
+                                <div className="absolute top-1 left-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleComparePhoto(photo);
+                                    }}
+                                    className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${selected
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-black/60 text-white hover:bg-black/80'
+                                      }`}
+                                  >
+                                    {selected ? '✓' : '+'}
+                                  </button>
+                                </div>
+                                <div className="absolute top-1 right-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeletePhoto(photo);
+                                    }}
+                                    className="px-1.5 py-0.5 text-[9px] rounded bg-black/60 text-white hover:bg-red-600/90"
+                                  >
+                                    🗑
+                                  </button>
+                                </div>
+                                <div className="px-1.5 py-1 text-[10px] font-bold text-slate-300 uppercase truncate bg-slate-900/90">
+                                  {photo.label}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {zoomedPhoto && (
+                  <div
+                    className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4"
+                    onClick={() => setZoomedPhoto(null)}
+                  >
+                    <div
+                      className="relative max-w-3xl w-full"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="text-sm font-bold text-white">
+                          <span className="uppercase text-slate-400 mr-2">{zoomedPhoto.label}</span>
+                          {zoomedPhoto.takenAt}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setZoomedPhoto(null)}
+                          className="text-slate-300 hover:text-white text-2xl leading-none"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <img
+                        src={zoomedPhoto.url}
+                        alt={zoomedPhoto.label}
+                        className="w-full max-h-[80vh] object-contain rounded-xl bg-black"
+                      />
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleComparePhoto(zoomedPhoto)}
+                          className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 text-white"
+                        >
+                          {comparePhotos.some((p) => p.id === zoomedPhoto.id)
+                            ? 'Selected for compare'
+                            : 'Add to compare'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setZoomedPhoto(null)}
+                          className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-700 text-white"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isPhotoCompareOpen && comparePhotos.length === 2 && (
+                  <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-bold text-white">Compare photos</h3>
+                        <button
+                          type="button"
+                          onClick={() => setIsPhotoCompareOpen(false)}
+                          className="text-slate-400 hover:text-white text-xl"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {comparePhotos.map((photo) => (
+                          <div key={photo.id} className="space-y-2">
+                            <div className="text-xs text-slate-400 font-bold uppercase">
+                              {photo.label} · {photo.takenAt}
+                            </div>
+                            <img
+                              src={photo.url}
+                              alt={photo.label}
+                              className="w-full rounded-xl object-contain max-h-[70vh] bg-black"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+{activeTab === 'overview' && selectedClient && (
+  <div className="space-y-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+        <div className="text-[10px] font-bold text-slate-500 uppercase">Status</div>
+        <div className="text-lg font-black text-white mt-1 capitalize">
+          {selectedClient.status || 'active'}
+        </div>
+      </div>
+      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+        <div className="text-[10px] font-bold text-slate-500 uppercase">Coach</div>
+        <div className="text-lg font-black text-white mt-1 truncate">
+          {selectedClient.coach || 'Unassigned'}
+        </div>
+      </div>
+      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+        <div className="text-[10px] font-bold text-slate-500 uppercase">Scans</div>
+        <div className="text-lg font-black text-blue-400 mt-1">{clientScans.length}</div>
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+       {/* Active habits */}
+<button
+  type="button"
+  onClick={() => setActiveTab('habits')}
+  className="w-full text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+>
+  <div className="flex items-center justify-between mb-2">
+    <div className="text-[10px] font-bold text-slate-500 uppercase">
+      Active habits ({activeHabitsList.length})
+    </div>
+    <span className="text-[10px] font-bold text-blue-400">View all →</span>
+  </div>
+
+  {activeHabitsList.length === 0 ? (
+    <div className="text-sm text-slate-500">No active habits assigned</div>
+  ) : (
+    <ul className="space-y-1.5">
+      {activeHabitsList.slice(0, 6).map((h) => (
+        <li
+          key={h.id}
+          className="flex items-center justify-between gap-2 text-sm"
+        >
+          <span className="font-semibold text-white truncate">
+            {h.name || h.habitName || h.title || 'Habit'}
+          </span>
+          <span className="text-[10px] text-slate-500 shrink-0">
+            {h.weeksAssigned ? `${h.weeksAssigned}w` : ''}
+          </span>
+        </li>
+      ))}
+      {activeHabitsList.length > 6 && (
+        <li className="text-xs text-slate-500">
+          +{activeHabitsList.length - 6} more
+        </li>
+      )}
+    </ul>
+  )}
+</button>
+      {/* Latest InBody */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('inbody')}
+        className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+      >
+        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Latest InBody</div>
+        {latestScan ? (
+          <div className="space-y-1">
+            <div className="text-xs text-slate-400">{formatDate(latestScan.scanDate)}</div>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <span className="font-black text-white">{latestScan.weight > 0 ? `${latestScan.weight} lbs` : '—'}</span>
+              <span className="font-black text-blue-400">{latestScan.smm > 0 ? `${latestScan.smm} SMM` : '—'}</span>
+              <span className="font-black text-purple-400">{latestScan.pbf > 0 ? `${latestScan.pbf}% BF` : '—'}</span>
+            </div>
+            {prevScan && latestScan.weight > 0 && prevScan.weight > 0 && (
+              <div className="text-xs text-slate-400 mt-1">
+                vs prior:{' '}
+                <span className={latestScan.weight - prevScan.weight <= 0 ? 'text-emerald-400' : 'text-amber-400'}>
+                  {`${latestScan.weight - prevScan.weight > 0 ? '+' : ''}${(latestScan.weight - prevScan.weight).toFixed(1)} lbs`}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500">No scans yet</div>
+        )}
+      </button>
+
+      {/* Next appointment */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('appointments')}
+        className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+      >
+        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Next appointment</div>
+        {nextAppt ? (
+          <div>
+            <div className="text-sm font-black text-white">{nextAppt.date} · {nextAppt.time}</div>
+            <div className="text-xs text-slate-400 mt-1">
+              {nextAppt.appointmentTypeName || 'Appointment'}
+              {nextAppt.roomName ? ` · ${nextAppt.roomName}` : ''}
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500">None upcoming</div>
+        )}
+      </button>
+
+      {/* Latest measurement */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('measurements')}
+        className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+      >
+        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Latest measurements</div>
+        {latestMeasurement ? (
+          <div>
+            <div className="text-xs text-slate-400">{latestMeasurement.date}</div>
+            <div className="flex flex-wrap gap-3 text-sm mt-1">
+              {latestMeasurement.waist != null && (
+                <span className="font-bold text-white">Waist {latestMeasurement.waist}</span>
+              )}
+              {latestMeasurement.hips != null && (
+                <span className="font-bold text-white">Hips {latestMeasurement.hips}</span>
+              )}
+              {latestMeasurement.chest != null && (
+                <span className="font-bold text-white">Chest {latestMeasurement.chest}</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500">No measurements yet</div>
+        )}
+      </button>
+
+      {/* SMS / MFP / Photo */}
+      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+        <button
+          type="button"
+          onClick={() => setActiveTab('messages')}
+          className="w-full text-left"
+        >
+          <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Last SMS</div>
+         {lastMessage ? (
+  <div>
+    <div className="text-xs text-slate-300 line-clamp-3">
+      {String(
+        lastMessage.body ||
+          lastMessage.message ||
+          lastMessage.text ||
+          lastMessage.msg ||
+          'Message'
+      )}
+    </div>
+    <div className="text-[10px] text-slate-500 mt-1">
+      {lastMessage.dateAdded || lastMessage.createdAt || lastMessage.date || ''}
+    </div>
+  </div>
+) : (
+  <div className="text-sm text-slate-500">No messages loaded</div>
+)}
+        </button>
+
+        {selectedClient.mfpUsername ? (
+          <a
+            href={`https://www.myfitnesspal.com/food/diary/${encodeURIComponent(selectedClient.mfpUsername)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex text-xs font-bold text-blue-400 hover:text-blue-300"
+          >
+            Open MFP diary ↗
+          </a>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setActiveTab('foodlog')}
+            className="text-xs font-bold text-slate-500"
+          >
+            Add MFP username →
+          </button>
+        )}
+
+        {latestPhoto && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('photos')}
+            className="flex items-center gap-2 w-full text-left"
+          >
+            <img
+              src={latestPhoto.url}
+              alt=""
+              className="w-10 h-10 rounded-lg object-cover border border-slate-700"
+            />
+            <div className="text-xs text-slate-400">
+              Latest photo · {latestPhoto.takenAt}
+            </div>
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
             {activeTab === 'habits' && (
               <div className="space-y-4">
@@ -1256,7 +2301,20 @@ export default function Clients({ focus, onFocusConsumed }) {
           </div>
         </div>
       )}
+      {selectedMeasurement && (
+        <MeasurementBodyMap
+          measurement={selectedMeasurement}
+          onClose={() => setSelectedMeasurement(null)}
+        />
+      )}
 
+      {isMeasurementCompareOpen && compareMeasurements.length === 2 && (
+        <MeasurementCompareModal
+          a={compareMeasurements[0]}
+          b={compareMeasurements[1]}
+          onClose={() => setIsMeasurementCompareOpen(false)}
+        />
+      )}
       {selectedScan && <InBodyResultSheetModal scan={selectedScan} onClose={() => setSelectedScan(null)} onDelete={handleDeleteScan} />}
       {compareScans.length === 2 && <InBodyCompareModal scanA={compareScans[0]} scanB={compareScans[1]} onClose={() => { setCompareScans([]); setIsCompareMode(false); }} />}
       <AdminInBodyUploadModal isOpen={isAdminUploadOpen} onClose={() => setIsAdminUploadOpen(false)} clients={clients} onComplete={() => { }} />
