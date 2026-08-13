@@ -481,9 +481,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       {/* TOP HEADER & MANAGEMENT TOOLBAR */}
       <div className="flex flex-wrap justify-between items-center pb-6 border-b border-slate-800 mb-6 gap-4">
         <div>
-          <h2 className="text-2xl font-black text-white">Master Calendar & Bookings</h2>
+          <h2 className="text-2xl font-black text-white">Calendar</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Dynamic room schedule & appointment booking system.
+            All Coaches Bookings are visible to all coaches 
           </p>
         </div>
 

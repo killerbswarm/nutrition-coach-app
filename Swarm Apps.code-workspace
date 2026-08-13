@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "swarm-committed-club",
+			"path": "../../swarmcommittedclub/swarm-committed-club"
+		},
+		{
+			"name": "swarmretentionapp",
+			"path": "../../swarmmemberretention/swarmretentionapp"
+		}
+	],
+	"settings": {}
+}

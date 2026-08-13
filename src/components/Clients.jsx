@@ -278,15 +278,27 @@ export default function Clients({ focus, onFocusConsumed }) {
     const unsub = onSnapshot(q, (snap) => setClientHabits(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
     return () => unsub();
   }, [selectedClient]);
-  useEffect(() => {
+
+    useEffect(() => {
     if (!focus?.clientId || clients.length === 0) return;
+
     const match = clients.find((c) => c.id === focus.clientId);
-    if (match) {
+    if (!match) {
+      if (onFocusConsumed) onFocusConsumed();
+      return;
+    }
+
+    const allowed =
+      currentUserRole === 'Owner' ||
+      (match.coachId && currentUser?.uid && match.coachId === currentUser.uid);
+
+    if (allowed) {
       setSelectedClient(match);
       if (focus.tab) setActiveTab(focus.tab);
     }
+
     if (onFocusConsumed) onFocusConsumed();
-  }, [focus, clients]);
+  }, [focus, clients, currentUserRole, currentUser?.uid]);
 
   useEffect(() => {
     if (!selectedClient) return;
@@ -316,15 +328,29 @@ export default function Clients({ focus, onFocusConsumed }) {
     fetchGhl();
   }, [selectedClient]);
 
+    useEffect(() => {
+    if (!selectedClient) return;
+    if (currentUserRole === 'Owner') return;
+
+    const allowed =
+      selectedClient.coachId &&
+      currentUser?.uid &&
+      selectedClient.coachId === currentUser.uid;
+
+    if (!allowed) {
+      setSelectedClient(null);
+    }
+  }, [selectedClient, currentUserRole, currentUser?.uid]);
+
   useEffect(() => {
     if (activeTab === 'messages' && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [ghlData.messages, activeTab]);
 
-  const roleFilteredClients = clients.filter((c) => {
+   const roleFilteredClients = clients.filter((c) => {
     if (currentUserRole === 'Owner') return true;
-    // Coach: only clients assigned to this login
+    // Coach: only clients assigned to this login (must have matching coachId)
     return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
   });
 
@@ -662,7 +688,7 @@ export default function Clients({ focus, onFocusConsumed }) {
           <button
               type="button"
               onClick={() => setSelectedClient(null)}
-              className="md:hidden mb-3 ml-12 text-sm font-bold text-blue-400 text-left"
+              className="md:hidden mb-3 text-sm font-bold text-blue-400 text-left"
             >
               ← Back to list
             </button>
@@ -1149,7 +1175,7 @@ export default function Clients({ focus, onFocusConsumed }) {
               <h3 className="text-lg font-bold text-white">{editingHabit ? 'Edit Habit' : 'Habit Library'}</h3>
               <button onClick={() => { setIsHabitLibraryOpen(false); setEditingHabit(null); }} className="text-slate-400 hover:text-white text-xl">×</button>
             </div>
-                    <div className="p-4 pt-14 pl-14 md:pt-4 md:pl-4 border-b border-slate-800 space-y-3">
+                    <div className="p-4 border-b border-slate-800 space-y-3">
               <input type="text" placeholder="Habit name" value={habitForm.name} onChange={(e) => setHabitForm({ ...habitForm, name: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
               <select value={habitForm.category} onChange={(e) => setHabitForm({ ...habitForm, category: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
                 <option value="Nutrition">Nutrition</option><option value="Hydration">Hydration</option><option value="Sleep">Sleep</option><option value="Movement">Movement</option><option value="Mindset">Mindset</option>

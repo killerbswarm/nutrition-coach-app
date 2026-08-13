@@ -238,14 +238,22 @@ export default function Dashboard() {
         />
       )}
 
-      <button
-        type="button"
-        onClick={() => setMobileNavOpen(true)}
-        className="md:hidden fixed top-3 left-3 z-50 p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-lg shadow-lg"
-        aria-label="Open menu"
-      >
-        ☰
-      </button>
+         <div className="md:hidden fixed top-0 left-0 right-0 z-50 h-12 flex items-center gap-3 px-3 bg-slate-900 border-b border-slate-800">
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen(true)}
+          className="p-2 rounded-lg bg-slate-800 text-white text-lg leading-none shrink-0"
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
+        <img
+          src="/Bee_BlackYellowWhite.png"
+          alt=""
+          className="w-7 h-7 object-contain shrink-0"
+        />
+        <span className="font-bold text-white text-sm truncate">Swarm Nutrition</span>
+      </div>
 
       <aside
         className={`
@@ -389,9 +397,9 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 overflow-y-auto">
+            <div className="flex-1 min-w-0 overflow-y-auto pt-12 md:pt-0">
         {currentNavView === 'dashboard' && (
-          <main className="p-4 md:p-6 pt-14 md:pt-6 space-y-6">
+          <main className="p-6 space-y-6">
             <div>
               <h2 className="text-2xl font-black text-white">Dashboard</h2>
               <p className="text-xs text-slate-400 mt-1">
