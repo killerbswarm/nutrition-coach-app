@@ -1153,11 +1153,11 @@ export default function Clients({ focus, onFocusConsumed }) {
             <div className="flex border-b border-slate-800 mb-6 gap-6 flex-wrap">
               {[
                 { id: 'overview', label: 'Overview' },
-                { id: 'inbody', label: `InBody Scans (${clientScans.length})` },
-                { id: 'habits', label: `Habits (${clientHabits.length})` },
-                { id: 'appointments', label: `Appointments (${clientBookings.length})` },
-                { id: 'messages', label: `SMS (${ghlData.messages.length})` },
-                { id: 'notes', label: `Notes (${ghlData.notes.length})` },
+                { id: 'inbody', label: `InBody Scans` },
+                { id: 'habits', label: `Habits` },
+                { id: 'appointments', label: `Appointments` },
+                { id: 'messages', label: `SMS` },
+                { id: 'notes', label: `Notes` },
                 { id: 'foodlog', label: 'Food log' },
                 { id: 'measurements', label: 'Measurements' },
                 { id: 'photos', label: 'Photos' },
