@@ -37,7 +37,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   const [appointmentTypes, setAppointmentTypes] = useState([]);
   const [calView, setCalView] = useState('list'); // list | day | week | month
   const [viewDate, setViewDate] = useState(() => new Date()); // anchor for day/week/month
-  const { isOwner } = useAuth();
+  const { isOwner, currentUser, currentUserRole } = useAuth();
+  // if your AuthContext uses userRole instead of currentUserRole, use that name
 
   // UI Filter & Modals
   const [selectedRoomFilter, setSelectedRoomFilter] = useState('ALL');
@@ -47,7 +48,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   const [editingBooking, setEditingBooking] = useState(null); // null = create mode
 
   // Live GHL Member Search inside Modal State
-  const [ghlQuery, setGhlQuery] = useState('');
+  const [memberQuery, setMemberQuery] = useState('');
   const [ghlResults, setGhlResults] = useState([]);
   const [isSearchingGhl, setIsSearchingGhl] = useState(false);
 
@@ -69,6 +70,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
 
   const [editingType, setEditingType] = useState(null);
   const [typeFormData, setTypeFormData] = useState({ name: '', durationMinutes: 15 });
+  const [bookingFilter, setBookingFilter] = useState('all'); // 'all' | 'mine'
 
   const toYMD = (d) => {
     const x = new Date(d);
@@ -91,6 +93,38 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
 
   const bookingsOn = (ymd) =>
     (bookings || []).filter((b) => b.date === ymd);
+
+  const bookingClientOptions = (clients || []).filter((c) => {
+    const active = (c.status || 'active') === 'active';
+    if (!active) return false;
+    if (isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner') return true;
+    const uid = currentUser?.uid;
+    if (uid && c.coachId && c.coachId === uid) return true;
+    const coachLabel = (currentUser?.displayName || currentUser?.email || '').toLowerCase();
+    const assigned = (c.coach || '').toLowerCase();
+    if (
+      coachLabel &&
+      assigned &&
+      (assigned === coachLabel || assigned.includes(coachLabel.split('@')[0]))
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  const filteredMemberOptions = bookingClientOptions.filter((c) => {
+    const q = (memberQuery || '').trim().toLowerCase();
+    if (!q) return true; // empty = show all your clients
+    const name = (c.name || '').toLowerCase();
+    const email = (c.email || '').toLowerCase();
+    const phone = String(c.phone || '').replace(/\D/g, '');
+    const qDigits = q.replace(/\D/g, '');
+    return (
+      name.includes(q) ||
+      email.includes(q) ||
+      (qDigits.length >= 3 && phone.includes(qDigits))
+    );
+  });
 
   // ---------------------------------------------------------------------------
   // 1. AUTO-SEED DEFAULTS & SUBSCRIBE TO FIRESTORE
@@ -179,19 +213,26 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   // ---------------------------------------------------------------------------
   // 2. LIVE GHL CONTACT SEARCH & AUTO-IMPORT
   // ---------------------------------------------------------------------------
-  const handleSearchGhl = async () => {
-    if (!ghlQuery.trim()) return;
+  const handleSearchGhl = async (queryOverride) => {
+    const q = String(queryOverride ?? memberQuery ?? '').trim();
+    if (!q) {
+      setGhlResults([]);
+      return;
+    }
     setIsSearchingGhl(true);
     try {
       const res = await fetch(
-        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(ghlQuery)}`
+        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(q)}`
       );
-      if (res.ok) {
-        const data = await res.json();
-        setGhlResults(data.contacts || []);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.contacts)) {
+        setGhlResults(data.contacts);
+      } else {
+        setGhlResults([]);
       }
-    } catch (err) {
-      console.error('GHL Search Error:', err);
+    } catch (e) {
+      console.error(e);
+      setGhlResults([]);
     } finally {
       setIsSearchingGhl(false);
     }
@@ -201,8 +242,13 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     const existingClient = clients.find(
       (c) =>
         (c.ghlContactId && c.ghlContactId === contact.id) ||
-        (c.email && contact.email && c.email.toLowerCase() === contact.email.toLowerCase()) ||
-        (c.phone && contact.phone && String(c.phone).replace(/\D/g, '') === String(contact.phone).replace(/\D/g, ''))
+        (c.email &&
+          contact.email &&
+          c.email.toLowerCase() === contact.email.toLowerCase()) ||
+        (c.phone &&
+          contact.phone &&
+          String(c.phone).replace(/\D/g, '') ===
+          String(contact.phone).replace(/\D/g, ''))
     );
 
     if (existingClient) {
@@ -210,38 +256,43 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         ...prev,
         clientId: existingClient.id,
         clientName: existingClient.name,
-        ghlContactId: contact.id,
+        ghlContactId: contact.id || existingClient.ghlContactId || '',
+        coach: existingClient.coach || prev.coach || '',
       }));
     } else {
       try {
         const newClientDoc = {
-          name: contact.name,
+          name: contact.name || '',
           email: contact.email || '',
           phone: contact.phone || '',
           ghlContactId: contact.id,
-          coach: '',
+          coach: currentUser?.displayName || '',
+          coachId: currentUser?.uid || '',
+          status: 'active',
           createdAt: new Date(),
         };
         const docRef = await addDoc(collection(db, 'clients'), newClientDoc);
         setNewBooking((prev) => ({
           ...prev,
           clientId: docRef.id,
-          clientName: contact.name,
+          clientName: contact.name || '',
           ghlContactId: contact.id,
+          coach: newClientDoc.coach,
         }));
       } catch (err) {
         console.error('Auto-import client error:', err);
         setNewBooking((prev) => ({
           ...prev,
           clientId: '',
-          clientName: contact.name,
+          clientName: contact.name || '',
           ghlContactId: contact.id,
         }));
       }
     }
 
+    // Close search UI after pick
+    setMemberQuery('');
     setGhlResults([]);
-    setGhlQuery('');
   };
 
   // ---------------------------------------------------------------------------
@@ -316,6 +367,10 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       notes: newBooking.notes || '',
       coach: coachName,
       coachEmail: newBooking.coachEmail || '',
+      // who created this booking in the app
+      bookedByUid: currentUser?.uid || '',
+      bookedByName: currentUser?.displayName || currentUser?.email || '',
+      bookedByEmail: currentUser?.email || '',
       updatedAt: new Date(),
     };
 
@@ -358,6 +413,12 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       console.error('Error deleting booking:', err);
     }
   };
+
+  const toTitleCase = (str) =>
+    String(str || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
 
   const openEditBooking = (booking) => {
     setEditingBooking(booking);
@@ -471,9 +532,59 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     })),
   ];
 
-  const filteredAppointments = allAppointments.filter((a) => {
-    if (selectedRoomFilter === 'ALL') return true;
-    return a.roomId === selectedRoomFilter;
+ const filteredAppointments = allAppointments.filter((a) => {
+  if (selectedRoomFilter !== 'ALL' && a.roomId !== selectedRoomFilter) {
+    return false;
+  }
+  if (bookingFilter === 'mine') {
+    const uid = currentUser?.uid;
+    const email = (currentUser?.email || '').toLowerCase();
+    if (a.bookedByUid && uid) return a.bookedByUid === uid;
+    if (a.bookedByEmail && email) {
+      return String(a.bookedByEmail).toLowerCase() === email;
+    }
+    return false;
+  }
+  return true;
+});
+
+
+  useEffect(() => {
+    // Don't search GHL if a member is already selected
+    if (newBooking.clientName || newBooking.clientId) {
+      setGhlResults([]);
+      return;
+    }
+
+    const q = (memberQuery || '').trim();
+    if (q.length < 2) {
+      setGhlResults([]);
+      return;
+    }
+
+    const t = setTimeout(() => {
+      handleSearchGhl(q);
+    }, 350); // wait until user pauses typing
+
+    return () => clearTimeout(t);
+  }, [memberQuery, newBooking.clientName, newBooking.clientId]);
+
+  const canModifyBooking = (b) => {
+    if (isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner') {
+      return true;
+    }
+    const uid = currentUser?.uid;
+    if (!uid) return false;
+    // Prefer bookedByUid; fall back for old rows without it
+    if (b.bookedByUid) return b.bookedByUid === uid;
+    return false; // old bookings: only owner can change
+  };
+
+  const visibleBookings = (bookings || []).filter((b) => {
+    if (bookingFilter !== 'mine') return true;
+    const uid = currentUser?.uid;
+    if (!uid) return false;
+    return b.bookedByUid === uid;
   });
 
   return (
@@ -483,7 +594,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
         <div>
           <h2 className="text-2xl font-black text-white">Calendar</h2>
           <p className="text-xs text-slate-400 mt-1">
-            All Coaches Bookings are visible to all coaches 
+            All Coaches Bookings are visible to all coaches
           </p>
         </div>
 
@@ -612,90 +723,132 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
               </div>
             )}
           </div>
-          {calView === 'list' && (filteredAppointments.length === 0 ? (
-            <div className="text-center py-12 text-xs text-slate-500">
-              No appointments scheduled. Click "Add New Booking" to create one.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredAppointments.map((appt) => {
-                const past = isPastAppointment(appt);
-                return (
-                  <div
-                    key={appt.id}
-                    className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${past
-                        ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
-                        : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
-                      }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {past ? (
-                          <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
-                            Past
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
-                            Upcoming
-                          </span>
-                        )}
+{calView === 'list' && (
+  <div className="space-y-3">
+    <div className="flex gap-1.5">
+      <button
+        type="button"
+        onClick={() => setBookingFilter('all')}
+        className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
+          bookingFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+        }`}
+      >
+        All bookings
+      </button>
+      <button
+        type="button"
+        onClick={() => setBookingFilter('mine')}
+        className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
+          bookingFilter === 'mine' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+        }`}
+      >
+        My bookings
+      </button>
+    </div>
 
-                        <span className={`font-bold text-sm ${past ? 'text-slate-400 line-through' : 'text-white'}`}>
-                          {appt.appointmentTypeName || 'Appointment'}
-                        </span>
+    {filteredAppointments.length === 0 ? (
+      <div className="text-center py-12 text-xs text-slate-500">
+        {bookingFilter === 'mine'
+          ? "No bookings you created. Switch to All bookings to see everyone's."
+          : 'No appointments scheduled. Click Add New Booking to create one.'}
+      </div>
+    ) : (
+      filteredAppointments.map((appt) => {
+        const past = isPastAppointment(appt);
+        return (
+          <div
+            key={appt.id}
+            className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${
+              past
+                ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
+                : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
+            }`}
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                {past ? (
+                  <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
+                    Past
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+                    Upcoming
+                  </span>
+                )}
+                <span
+                  className={`font-bold text-sm ${
+                    past ? 'text-slate-400 line-through' : 'text-white'
+                  }`}
+                >
+                  {appt.appointmentTypeName || 'Appointment'}
+                </span>
+                {appt.roomName && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                    {appt.roomName}
+                  </span>
+                )}
+                {appt.durationMinutes && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    {appt.durationMinutes} min
+                  </span>
+                )}
+              </div>
 
-                        {appt.roomName && (
-                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                            {appt.roomName}
-                          </span>
-                        )}
+              <div className={`text-sm mt-1 ${past ? 'text-slate-500' : 'text-slate-200'}`}>
+                Member: {appt.clientName || '—'}
+              </div>
 
-                        <span className="px-2 py-0.5 text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full">
-                          {appt.durationMinutes || 15} min
-                        </span>
-                      </div>
-
-                      <div className={`text-xs mt-1 ${past ? 'text-slate-500' : 'text-slate-400'}`}>
-                        Member:{' '}
-                        <span className={past ? 'text-slate-500' : 'text-slate-200 font-medium'}>
-                          {appt.clientName || '—'}
-                        </span>
-                      </div>
-
-                      {appt.notes && (
-                        <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+              {(appt.bookedByName || appt.bookedByEmail) && (
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  Booked by{' '}
+                  {appt.bookedByName && !String(appt.bookedByName).includes('@')
+                    ? appt.bookedByName
+                    : toTitleCase(
+                        String(appt.bookedByName || appt.bookedByEmail || '')
+                          .split('@')[0]
+                          .replace(/[._]/g, ' ')
                       )}
-                    </div>
+                </div>
+              )}
 
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
-                        <div className="font-semibold">{appt.date}</div>
-                        <div>{appt.time}</div>
-                      </div>
-
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openEditBooking(appt)}
-                          className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteBooking(appt.id)}
-                          className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {appt.notes && (
+                <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+              )}
             </div>
-          ))}
-                    {calView === 'day' && (
+
+            <div className="flex items-center gap-3 shrink-0">
+              <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
+                <div className="font-semibold">{appt.date}</div>
+                <div>{appt.time}</div>
+              </div>
+
+              {canModifyBooking(appt) && (
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => openEditBooking(appt)}
+                    className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBooking(appt.id)}
+                    className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })
+    )}
+  </div>
+)}
+
+          {calView === 'day' && (
             <div className="space-y-2">
               {bookingsOn(toYMD(viewDate)).length === 0 ? (
                 <p className="text-center py-10 text-xs text-slate-500">No appointments this day</p>
@@ -706,7 +859,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                     <button
                       key={appt.id}
                       type="button"
-                      onClick={() => openEditBooking(appt)}
+                      onClick={() => {
+                        if (canModifyBooking(appt)) openEditBooking(appt);
+                      }}
                       className="w-full text-left p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-blue-500/40"
                     >
                       <div className="font-bold text-white text-sm">
@@ -732,9 +887,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                 return (
                   <div
                     key={ymd}
-                    className={`bg-slate-950 border rounded-xl p-2 min-h-[120px] ${
-                      isToday ? 'border-blue-500/50' : 'border-slate-800'
-                    }`}
+                    className={`bg-slate-950 border rounded-xl p-2 min-h-[120px] ${isToday ? 'border-blue-500/50' : 'border-slate-800'
+                      }`}
                   >
                     <div className="text-[11px] font-bold text-slate-400 mb-2">
                       {d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}
@@ -744,7 +898,9 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                         <button
                           key={appt.id}
                           type="button"
-                          onClick={() => openEditBooking(appt)}
+                          onClick={() => {
+                            if (canModifyBooking(appt)) openEditBooking(appt);
+                          }}
                           className="w-full text-left px-1.5 py-1 rounded-lg bg-blue-600/20 text-[10px] text-blue-200"
                         >
                           <div className="font-bold">{appt.time}</div>
@@ -786,9 +942,8 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                           setViewDate(d);
                           setCalView('day');
                         }}
-                        className={`min-h-[68px] p-1 rounded-xl border text-left ${
-                          isToday ? 'border-blue-500/50 bg-blue-600/10' : 'border-slate-800 bg-slate-950'
-                        } ${inMonth ? '' : 'opacity-40'}`}
+                        className={`min-h-[68px] p-1 rounded-xl border text-left ${isToday ? 'border-blue-500/50 bg-blue-600/10' : 'border-slate-800 bg-slate-950'
+                          } ${inMonth ? '' : 'opacity-40'}`}
                       >
                         <div className="text-[11px] font-bold text-slate-300">{d.getDate()}</div>
                         {items.slice(0, 2).map((appt) => (
@@ -855,80 +1010,97 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
             <form onSubmit={handleCreateBooking} className="space-y-4 text-xs">
               {/* Member Selection */}
               <div className="space-y-2">
-                <label className="block text-slate-300 font-semibold">Select Member</label>
+                <label className="block text-slate-300 font-semibold text-sm">Member</label>
 
-                <select
-                  value={newBooking.clientId}
-                  onChange={(e) => {
-                    const c = clients.find((item) => item.id === e.target.value);
-                    setNewBooking((prev) => ({
-                      ...prev,
-                      clientId: e.target.value,
-                      clientName: c ? c.name : prev.clientName,
-                      ghlContactId: c ? c.ghlContactId || '' : prev.ghlContactId,
-                    }));
-                  }}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">-- Choose from Local Roster ({clients.length}) --</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-
-                {/* GHL Search */}
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                  <div className="text-[11px] font-bold text-blue-400">🔍 Search & Select GoHighLevel Contact</div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Search GHL name, phone, email..."
-                      value={ghlQuery}
-                      onChange={(e) => setGhlQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchGhl())}
-                      className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    />
+                {newBooking.clientName ? (
+                  <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-blue-600/15 border border-blue-500/30">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-white truncate">{newBooking.clientName}</div>
+                      <div className="text-[10px] text-slate-400">Selected</div>
+                    </div>
                     <button
                       type="button"
-                      onClick={handleSearchGhl}
-                      disabled={isSearchingGhl}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg disabled:opacity-50"
+                      onClick={() => {
+                        setNewBooking((prev) => ({
+                          ...prev,
+                          clientId: '',
+                          clientName: '',
+                          ghlContactId: '',
+                        }));
+                        setMemberQuery('');
+                      }}
+                      className="text-xs font-bold text-slate-300 hover:text-white shrink-0"
                     >
-                      {isSearchingGhl ? '...' : 'Search'}
+                      Change
                     </button>
                   </div>
-
-                  {ghlResults.length > 0 && (
-                    <div className="max-h-36 overflow-y-auto space-y-1 pt-1 border-t border-slate-800">
-                      {ghlResults.map((contact) => (
-                        <div
-                          key={contact.id}
-                          onClick={() => handleSelectGhlContact(contact)}
-                          className="p-2 bg-slate-900 hover:bg-slate-800 rounded-lg cursor-pointer flex justify-between items-center text-xs"
-                        >
-                          <div>
-                            <div className="font-bold text-white">{contact.name}</div>
-                            <div className="text-[10px] text-slate-400">{contact.email || contact.phone || 'GHL Contact'}</div>
-                          </div>
-                          <span className="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded font-semibold">
-                            Select
-                          </span>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={memberQuery}
+                      onChange={(e) => setMemberQuery(e.target.value)}
+                      placeholder="Search your clients..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-800 divide-y divide-slate-800">
+                      {filteredMemberOptions.length === 0 ? (
+                        <div className="px-3 py-4 text-xs text-slate-500 text-center">
+                          No clients match
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                      ) : (
+                        filteredMemberOptions.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setNewBooking((prev) => ({
+                                ...prev,
+                                clientId: c.id,
+                                clientName: c.name || '',
+                                ghlContactId: c.ghlContactId || '',
+                                coach: c.coach || prev.coach || '',
+                              }));
+                              setMemberQuery('');
+                            }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-slate-800 transition"
+                          >
+                            <div className="text-sm font-semibold text-white">{c.name}</div>
+                          </button>
+                        ))
+                      )}
+                      {isSearchingGhl && (
+                        <div className="text-[11px] text-slate-400 px-1">Searching members…</div>
+                      )}
 
-                <input
-                  type="text"
-                  value={newBooking.clientName}
-                  onChange={(e) => setNewBooking((prev) => ({ ...prev, clientName: e.target.value }))}
-                  placeholder="Selected Member Name..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-blue-500"
-                  required
-                />
+                      {!newBooking.clientName && ghlResults.length > 0 && (
+                        <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-800 divide-y divide-slate-800">
+                          <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-500">
+                            All gym members
+                          </div>
+                          {ghlResults.map((contact) => {
+                            const displayName = toTitleCase(contact.name || '');
+                            return (
+                              <button
+                                key={contact.id}
+                                type="button"
+                                onClick={() =>
+                                  handleSelectGhlContact({
+                                    ...contact,
+                                    name: displayName,
+                                  })
+                                }
+                                className="w-full text-left px-3 py-2.5 hover:bg-slate-800"
+                              >
+                                <div className="text-sm font-semibold text-white">{displayName}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Appointment Type */}

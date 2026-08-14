@@ -32,7 +32,13 @@ const parseInBodyDate = (dateStr) => {
     const hour = str.length >= 10 ? str.substring(8, 10) : "12";
     const min = str.length >= 12 ? str.substring(10, 12) : "00";
     const sec = str.length >= 14 ? str.substring(12, 14) : "00";
-    return new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}Z`).toISOString();
+    // InBody TestDatetimes is local device time (Eastern for CrossFit Swarm), not UTC
+    const local = new Date(
+      `${year}-${month}-${day}T${hour}:${min}:${sec}-04:00`
+    );
+    return isNaN(local.getTime())
+      ? new Date().toISOString()
+      : local.toISOString();
   }
   const parsed = new Date(str);
   return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
@@ -688,19 +694,32 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
 
     const payload = req.body;
     const rawPhone = payload.Mobile || payload.phone || payload.UserPhone || payload.ID || payload.TelHP || payload.User_ID || payload.UserID || "";
-    const cleanPhone = String(rawPhone).replace(/\D/g, "");
+    const digits = (p) => String(p || "").replace(/\D/g, "");
+    const last10 = (p) => {
+      const d = digits(p);
+      return d.length >= 10 ? d.slice(-10) : d;
+    };
+
+    const cleanPhone = last10(
+      payload.Mobile ||
+        payload.phone ||
+        payload.UserPhone ||
+        payload.ID ||
+        payload.TelHP ||
+        payload.User_ID ||
+        payload.UserID ||
+        ""
+    );
 
     let matchedClientId = null;
-    let matchedClientName = payload.Name || "Member";
+    let matchedClientName = payload.Name || payload.UserName || "Member";
 
     if (cleanPhone) {
       const clientsSnap = await db.collection("clients").get();
       const matched = clientsSnap.docs.find((d) => {
-        const cData = d.data();
-        const cPhone = String(cData.phone || "").replace(/\D/g, "");
-        return cPhone && (cPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cPhone));
+        const cPhone = last10(d.data().phone);
+        return cPhone && cPhone === cleanPhone;
       });
-
       if (matched) {
         matchedClientId = matched.id;
         matchedClientName = matched.data().name || matchedClientName;
@@ -710,7 +729,7 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
     const scanRecord = {
       clientId: matchedClientId,
       clientName: payload.Name || payload.UserName || matchedClientName,
-      phone: String(cleanPhone),
+      phone: cleanPhone,
       scanDate: parseInBodyDate(findDateStr(payload)),
       weight: findMetric(payload, "Weight", "WT", "Weight_lbs", "WT_lbs"),
       smm: findMetric(payload, "SMM", "SkeletalMuscleMass", "SMM_lbs"),
@@ -721,7 +740,6 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       rawPayload: payload,
     };
-
     await db.collection("inbody_scans").add(scanRecord);
     return res.status(200).json({ success: true, message: "InBody scan saved to database successfully", scan: scanRecord });
   } catch (err) {

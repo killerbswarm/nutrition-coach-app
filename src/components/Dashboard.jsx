@@ -397,7 +397,7 @@ export default function Dashboard() {
         </div>
       </aside>
 
-            <div className="flex-1 min-w-0 overflow-y-auto pt-12 md:pt-0">
+            <div className="flex-1 min-w-0 min-h-0 overflow-hidden pt-12 md:pt-0 flex flex-col">
         {currentNavView === 'dashboard' && (
           <main className="p-6 space-y-6">
             <div>

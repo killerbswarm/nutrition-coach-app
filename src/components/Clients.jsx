@@ -455,7 +455,30 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [selectedMeasurement, setSelectedMeasurement] = useState(null);
   const [compareMeasurements, setCompareMeasurements] = useState([]); // max 2
   const [isMeasurementCompareOpen, setIsMeasurementCompareOpen] = useState(false);
+const [isBookingOpen, setIsBookingOpen] = useState(false);
+const [rooms, setRooms] = useState([]);
+const [appointmentTypes, setAppointmentTypes] = useState([]);
+const [bookingForm, setBookingForm] = useState({
+  appointmentTypeId: '',
+  roomId: '',
+  date: new Date().toISOString().split('T')[0],
+  time: '10:00',
+  durationMinutes: 15,
+  notes: '',
+});
 
+useEffect(() => {
+  const u1 = onSnapshot(collection(db, 'rooms'), (snap) => {
+    setRooms(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+  const u2 = onSnapshot(collection(db, 'appointment_types'), (snap) => {
+    setAppointmentTypes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+  return () => {
+    u1();
+    u2();
+  };
+}, []);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
@@ -480,9 +503,9 @@ export default function Clients({ focus, onFocusConsumed }) {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setClients(docs);
       if (docs.length > 0 && !selectedClient) {
-  setSelectedClient(docs[0]);
-  setActiveTab('overview');
-}
+        setSelectedClient(docs[0]);
+        setActiveTab('overview');
+      }
     });
     return () => unsub();
   }, []);
@@ -558,7 +581,7 @@ export default function Clients({ focus, onFocusConsumed }) {
       currentUserRole === 'Owner' ||
       (match.coachId && currentUser?.uid && match.coachId === currentUser.uid);
 
-       if (allowed) {
+    if (allowed) {
       setSelectedClient(match);
       setActiveTab(focus.tab || 'overview');
     }
@@ -990,6 +1013,34 @@ export default function Clients({ focus, onFocusConsumed }) {
     });
   };
 
+  const handleSaveClientBooking = async () => {
+  if (!selectedClient) return;
+  const typeObj = appointmentTypes.find((t) => t.id === bookingForm.appointmentTypeId);
+  const roomObj = rooms.find((r) => r.id === bookingForm.roomId);
+
+  await addDoc(collection(db, 'bookings'), {
+    clientId: selectedClient.id,
+    clientName: selectedClient.name || '',
+    ghlContactId: selectedClient.ghlContactId || '',
+    appointmentTypeId: bookingForm.appointmentTypeId,
+    appointmentTypeName: typeObj?.name || '',
+    roomId: bookingForm.roomId,
+    roomName: roomObj?.name || '',
+    date: bookingForm.date,
+    time: bookingForm.time,
+    durationMinutes: Number(bookingForm.durationMinutes) || 15,
+    notes: bookingForm.notes || '',
+    coach: selectedClient.coach || '',
+    bookedByUid: currentUser?.uid || '',
+    bookedByName: currentUser?.displayName || currentUser?.email || '',
+    bookedByEmail: currentUser?.email || '',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  setIsBookingOpen(false);
+};
+
   const currentGhlId = selectedClient?.ghlContactId || selectedClient?.ghlId || selectedClient?.ghl || selectedClient?.contactId || 'N/A';
 
   const filteredPhotos =
@@ -1006,7 +1057,7 @@ export default function Clients({ focus, onFocusConsumed }) {
 
   const photoDateKeys = Object.keys(photosByDate).sort((a, b) => (a < b ? 1 : -1));
 
-    const latestScan = clientScans[0] || null;
+  const latestScan = clientScans[0] || null;
   const prevScan = clientScans[1] || null;
   const nextAppt = [...clientBookings]
     .filter((b) => {
@@ -1028,11 +1079,11 @@ export default function Clients({ focus, onFocusConsumed }) {
     return sorted[0];
   })();
 
-    const activeHabitsList = clientHabits.filter(
+  const activeHabitsList = clientHabits.filter(
     (h) => (h.status || 'active') === 'active'
   );
 
-    const activeHabitsCount = (clientHabits || []).filter(
+  const activeHabitsCount = (clientHabits || []).filter(
     (h) => (h.status || 'active') === 'active'
   ).length;
 
@@ -1077,14 +1128,14 @@ export default function Clients({ focus, onFocusConsumed }) {
                         role="button"
                         tabIndex={0}
                         onClick={() => {
-  setSelectedClient(c);
-  setActiveTab('overview');
-}}
+                          setSelectedClient(c);
+                          setActiveTab('overview');
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
-  setSelectedClient(c);
-  setActiveTab('overview');
-}
+                            setSelectedClient(c);
+                            setActiveTab('overview');
+                          }
                         }}
                         className={`w-full text-left p-3 rounded-xl border transition flex items-center justify-between gap-2 cursor-pointer ${selectedClient?.id === c.id
                           ? 'bg-blue-600/20 border-blue-500/40'
@@ -1123,12 +1174,12 @@ export default function Clients({ focus, onFocusConsumed }) {
         </div>
       </section>
 
-      <main
-        className={`
-          flex-1 flex-col overflow-y-auto bg-slate-950 p-4 md:p-6 min-w-0
-          ${selectedClient ? 'flex' : 'hidden md:flex'}
-        `}
-      >
+     <main
+  className={`
+    flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-slate-950 p-4 md:p-6
+    ${selectedClient ? 'flex' : 'hidden md:flex'}
+  `}
+>
         {selectedClient ? (
           <>
             <button
@@ -1178,6 +1229,7 @@ export default function Clients({ focus, onFocusConsumed }) {
                 </button>
               ))}
             </div>
+              <div className="flex-1 min-h-0 overflow-y-auto">
             {activeTab === 'inbody' && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
@@ -1371,8 +1423,8 @@ export default function Clients({ focus, onFocusConsumed }) {
                               toggleCompareMeasurement(m);
                             }}
                             className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border ${compareMeasurements.some((x) => x.id === m.id)
-                                ? 'bg-blue-600 text-white border-blue-500'
-                                : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
+                              ? 'bg-blue-600 text-white border-blue-500'
+                              : 'bg-slate-950 text-slate-400 border-slate-700 hover:text-white'
                               }`}
                           >
                             {compareMeasurements.some((x) => x.id === m.id) ? '✓ Compare' : '+ Compare'}
@@ -1482,8 +1534,8 @@ export default function Clients({ focus, onFocusConsumed }) {
                       type="button"
                       onClick={() => setPhotoFilter(f.id)}
                       className={`px-3 py-1 text-[11px] font-bold rounded-lg border ${photoFilter === f.id
-                          ? 'bg-blue-600 text-white border-blue-500'
-                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        ? 'bg-blue-600 text-white border-blue-500'
+                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
                         }`}
                     >
                       {f.label}
@@ -1512,8 +1564,8 @@ export default function Clients({ focus, onFocusConsumed }) {
                               <div
                                 key={photo.id}
                                 className={`relative rounded-xl border overflow-hidden bg-slate-900 ${selected
-                                    ? 'border-blue-500 ring-1 ring-blue-500/50'
-                                    : 'border-slate-800'
+                                  ? 'border-blue-500 ring-1 ring-blue-500/50'
+                                  : 'border-slate-800'
                                   }`}
                               >
                                 <button
@@ -1536,8 +1588,8 @@ export default function Clients({ focus, onFocusConsumed }) {
                                       toggleComparePhoto(photo);
                                     }}
                                     className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${selected
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-black/60 text-white hover:bg-black/80'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-black/60 text-white hover:bg-black/80'
                                       }`}
                                   >
                                     {selected ? '✓' : '+'}
@@ -1649,209 +1701,209 @@ export default function Clients({ focus, onFocusConsumed }) {
               </div>
             )}
 
-{activeTab === 'overview' && selectedClient && (
-  <div className="space-y-4">
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
-        <div className="text-[10px] font-bold text-slate-500 uppercase">Status</div>
-        <div className="text-lg font-black text-white mt-1 capitalize">
-          {selectedClient.status || 'active'}
-        </div>
-      </div>
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
-        <div className="text-[10px] font-bold text-slate-500 uppercase">Coach</div>
-        <div className="text-lg font-black text-white mt-1 truncate">
-          {selectedClient.coach || 'Unassigned'}
-        </div>
-      </div>
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
-        <div className="text-[10px] font-bold text-slate-500 uppercase">Scans</div>
-        <div className="text-lg font-black text-blue-400 mt-1">{clientScans.length}</div>
-      </div>
-    </div>
+            {activeTab === 'overview' && selectedClient && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">Status</div>
+                    <div className="text-lg font-black text-white mt-1 capitalize">
+                      {selectedClient.status || 'active'}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">Coach</div>
+                    <div className="text-lg font-black text-white mt-1 truncate">
+                      {selectedClient.coach || 'Unassigned'}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">Scans</div>
+                    <div className="text-lg font-black text-blue-400 mt-1">{clientScans.length}</div>
+                  </div>
+                </div>
 
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-       {/* Active habits */}
-<button
-  type="button"
-  onClick={() => setActiveTab('habits')}
-  className="w-full text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
->
-  <div className="flex items-center justify-between mb-2">
-    <div className="text-[10px] font-bold text-slate-500 uppercase">
-      Active habits ({activeHabitsList.length})
-    </div>
-    <span className="text-[10px] font-bold text-blue-400">View all →</span>
-  </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Active habits */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('habits')}
+                    className="w-full text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase">
+                        Active habits ({activeHabitsList.length})
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-400">View all →</span>
+                    </div>
 
-  {activeHabitsList.length === 0 ? (
-    <div className="text-sm text-slate-500">No active habits assigned</div>
-  ) : (
-    <ul className="space-y-1.5">
-      {activeHabitsList.slice(0, 6).map((h) => (
-        <li
-          key={h.id}
-          className="flex items-center justify-between gap-2 text-sm"
-        >
-          <span className="font-semibold text-white truncate">
-            {h.name || h.habitName || h.title || 'Habit'}
-          </span>
-          <span className="text-[10px] text-slate-500 shrink-0">
-            {h.weeksAssigned ? `${h.weeksAssigned}w` : ''}
-          </span>
-        </li>
-      ))}
-      {activeHabitsList.length > 6 && (
-        <li className="text-xs text-slate-500">
-          +{activeHabitsList.length - 6} more
-        </li>
-      )}
-    </ul>
-  )}
-</button>
-      {/* Latest InBody */}
-      <button
-        type="button"
-        onClick={() => setActiveTab('inbody')}
-        className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
-      >
-        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Latest InBody</div>
-        {latestScan ? (
-          <div className="space-y-1">
-            <div className="text-xs text-slate-400">{formatDate(latestScan.scanDate)}</div>
-            <div className="flex flex-wrap gap-3 text-sm">
-              <span className="font-black text-white">{latestScan.weight > 0 ? `${latestScan.weight} lbs` : '—'}</span>
-              <span className="font-black text-blue-400">{latestScan.smm > 0 ? `${latestScan.smm} SMM` : '—'}</span>
-              <span className="font-black text-purple-400">{latestScan.pbf > 0 ? `${latestScan.pbf}% BF` : '—'}</span>
-            </div>
-            {prevScan && latestScan.weight > 0 && prevScan.weight > 0 && (
-              <div className="text-xs text-slate-400 mt-1">
-                vs prior:{' '}
-                <span className={latestScan.weight - prevScan.weight <= 0 ? 'text-emerald-400' : 'text-amber-400'}>
-                  {`${latestScan.weight - prevScan.weight > 0 ? '+' : ''}${(latestScan.weight - prevScan.weight).toFixed(1)} lbs`}
-                </span>
+                    {activeHabitsList.length === 0 ? (
+                      <div className="text-sm text-slate-500">No active habits assigned</div>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {activeHabitsList.slice(0, 6).map((h) => (
+                          <li
+                            key={h.id}
+                            className="flex items-center justify-between gap-2 text-sm"
+                          >
+                            <span className="font-semibold text-white truncate">
+                              {h.name || h.habitName || h.title || 'Habit'}
+                            </span>
+                            <span className="text-[10px] text-slate-500 shrink-0">
+                              {h.weeksAssigned ? `${h.weeksAssigned}w` : ''}
+                            </span>
+                          </li>
+                        ))}
+                        {activeHabitsList.length > 6 && (
+                          <li className="text-xs text-slate-500">
+                            +{activeHabitsList.length - 6} more
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </button>
+                  {/* Latest InBody */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('inbody')}
+                    className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+                  >
+                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Latest InBody</div>
+                    {latestScan ? (
+                      <div className="space-y-1">
+                        <div className="text-xs text-slate-400">{formatDate(latestScan.scanDate)}</div>
+                        <div className="flex flex-wrap gap-3 text-sm">
+                          <span className="font-black text-white">{latestScan.weight > 0 ? `${latestScan.weight} lbs` : '—'}</span>
+                          <span className="font-black text-blue-400">{latestScan.smm > 0 ? `${latestScan.smm} SMM` : '—'}</span>
+                          <span className="font-black text-purple-400">{latestScan.pbf > 0 ? `${latestScan.pbf}% BF` : '—'}</span>
+                        </div>
+                        {prevScan && latestScan.weight > 0 && prevScan.weight > 0 && (
+                          <div className="text-xs text-slate-400 mt-1">
+                            vs prior:{' '}
+                            <span className={latestScan.weight - prevScan.weight <= 0 ? 'text-emerald-400' : 'text-amber-400'}>
+                              {`${latestScan.weight - prevScan.weight > 0 ? '+' : ''}${(latestScan.weight - prevScan.weight).toFixed(1)} lbs`}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500">No scans yet</div>
+                    )}
+                  </button>
+
+                  {/* Next appointment */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('appointments')}
+                    className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+                  >
+                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Next appointment</div>
+                    {nextAppt ? (
+                      <div>
+                        <div className="text-sm font-black text-white">{nextAppt.date} · {nextAppt.time}</div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          {nextAppt.appointmentTypeName || 'Appointment'}
+                          {nextAppt.roomName ? ` · ${nextAppt.roomName}` : ''}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500">None upcoming</div>
+                    )}
+                  </button>
+
+                  {/* Latest measurement */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('measurements')}
+                    className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
+                  >
+                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Latest measurements</div>
+                    {latestMeasurement ? (
+                      <div>
+                        <div className="text-xs text-slate-400">{latestMeasurement.date}</div>
+                        <div className="flex flex-wrap gap-3 text-sm mt-1">
+                          {latestMeasurement.waist != null && (
+                            <span className="font-bold text-white">Waist {latestMeasurement.waist}</span>
+                          )}
+                          {latestMeasurement.hips != null && (
+                            <span className="font-bold text-white">Hips {latestMeasurement.hips}</span>
+                          )}
+                          {latestMeasurement.chest != null && (
+                            <span className="font-bold text-white">Chest {latestMeasurement.chest}</span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500">No measurements yet</div>
+                    )}
+                  </button>
+
+                  {/* SMS / MFP / Photo */}
+                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('messages')}
+                      className="w-full text-left"
+                    >
+                      <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Last SMS</div>
+                      {lastMessage ? (
+                        <div>
+                          <div className="text-xs text-slate-300 line-clamp-3">
+                            {String(
+                              lastMessage.body ||
+                              lastMessage.message ||
+                              lastMessage.text ||
+                              lastMessage.msg ||
+                              'Message'
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-1">
+                            {lastMessage.dateAdded || lastMessage.createdAt || lastMessage.date || ''}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-500">No messages loaded</div>
+                      )}
+                    </button>
+
+                    {selectedClient.mfpUsername ? (
+                      <a
+                        href={`https://www.myfitnesspal.com/food/diary/${encodeURIComponent(selectedClient.mfpUsername)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex text-xs font-bold text-blue-400 hover:text-blue-300"
+                      >
+                        Open MFP diary ↗
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('foodlog')}
+                        className="text-xs font-bold text-slate-500"
+                      >
+                        Add MFP username →
+                      </button>
+                    )}
+
+                    {latestPhoto && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('photos')}
+                        className="flex items-center gap-2 w-full text-left"
+                      >
+                        <img
+                          src={latestPhoto.url}
+                          alt=""
+                          className="w-10 h-10 rounded-lg object-cover border border-slate-700"
+                        />
+                        <div className="text-xs text-slate-400">
+                          Latest photo · {latestPhoto.takenAt}
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500">No scans yet</div>
-        )}
-      </button>
-
-      {/* Next appointment */}
-      <button
-        type="button"
-        onClick={() => setActiveTab('appointments')}
-        className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
-      >
-        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Next appointment</div>
-        {nextAppt ? (
-          <div>
-            <div className="text-sm font-black text-white">{nextAppt.date} · {nextAppt.time}</div>
-            <div className="text-xs text-slate-400 mt-1">
-              {nextAppt.appointmentTypeName || 'Appointment'}
-              {nextAppt.roomName ? ` · ${nextAppt.roomName}` : ''}
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500">None upcoming</div>
-        )}
-      </button>
-
-      {/* Latest measurement */}
-      <button
-        type="button"
-        onClick={() => setActiveTab('measurements')}
-        className="text-left p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600"
-      >
-        <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Latest measurements</div>
-        {latestMeasurement ? (
-          <div>
-            <div className="text-xs text-slate-400">{latestMeasurement.date}</div>
-            <div className="flex flex-wrap gap-3 text-sm mt-1">
-              {latestMeasurement.waist != null && (
-                <span className="font-bold text-white">Waist {latestMeasurement.waist}</span>
-              )}
-              {latestMeasurement.hips != null && (
-                <span className="font-bold text-white">Hips {latestMeasurement.hips}</span>
-              )}
-              {latestMeasurement.chest != null && (
-                <span className="font-bold text-white">Chest {latestMeasurement.chest}</span>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500">No measurements yet</div>
-        )}
-      </button>
-
-      {/* SMS / MFP / Photo */}
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-        <button
-          type="button"
-          onClick={() => setActiveTab('messages')}
-          className="w-full text-left"
-        >
-          <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Last SMS</div>
-         {lastMessage ? (
-  <div>
-    <div className="text-xs text-slate-300 line-clamp-3">
-      {String(
-        lastMessage.body ||
-          lastMessage.message ||
-          lastMessage.text ||
-          lastMessage.msg ||
-          'Message'
-      )}
-    </div>
-    <div className="text-[10px] text-slate-500 mt-1">
-      {lastMessage.dateAdded || lastMessage.createdAt || lastMessage.date || ''}
-    </div>
-  </div>
-) : (
-  <div className="text-sm text-slate-500">No messages loaded</div>
-)}
-        </button>
-
-        {selectedClient.mfpUsername ? (
-          <a
-            href={`https://www.myfitnesspal.com/food/diary/${encodeURIComponent(selectedClient.mfpUsername)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex text-xs font-bold text-blue-400 hover:text-blue-300"
-          >
-            Open MFP diary ↗
-          </a>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setActiveTab('foodlog')}
-            className="text-xs font-bold text-slate-500"
-          >
-            Add MFP username →
-          </button>
-        )}
-
-        {latestPhoto && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('photos')}
-            className="flex items-center gap-2 w-full text-left"
-          >
-            <img
-              src={latestPhoto.url}
-              alt=""
-              className="w-10 h-10 rounded-lg object-cover border border-slate-700"
-            />
-            <div className="text-xs text-slate-400">
-              Latest photo · {latestPhoto.takenAt}
-            </div>
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-)}
 
             {activeTab === 'habits' && (
               <div className="space-y-4">
@@ -1886,6 +1938,26 @@ export default function Clients({ focus, onFocusConsumed }) {
             )}
 
             {activeTab === 'appointments' && (
+              <div className="space-y-4">
+    <div className="flex justify-end">
+      <button
+        type="button"
+        onClick={() => {
+          setBookingForm({
+            appointmentTypeId: appointmentTypes[0]?.id || '',
+            roomId: rooms[0]?.id || '',
+            date: new Date().toISOString().split('T')[0],
+            time: '10:00',
+            durationMinutes: appointmentTypes[0]?.durationMinutes || 15,
+            notes: '',
+          });
+          setIsBookingOpen(true);
+        }}
+        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl"
+      >
+        + Add booking
+      </button>
+    </div>
               <div className="space-y-6">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Upcoming</h3>
@@ -1914,31 +1986,80 @@ export default function Clients({ focus, onFocusConsumed }) {
                   </div>
                 </div>
               </div>
+              </div>
             )}
 
-            {activeTab === 'messages' && (
-              <div className="flex flex-col h-[550px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <div className="flex-1 p-4 overflow-y-auto space-y-3">
+           {activeTab === 'messages' && (
+  <div className="flex flex-col h-[min(550px,calc(100vh-14rem))] max-h-[calc(100vh-12rem)] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden min-h-0">      
+  <div className="flex-1 min-h-0 p-4 overflow-y-auto overflow-x-hidden space-y-3 overscroll-contain">
                   {loadingGhl ? <div className="text-xs text-slate-400 text-center py-8">Loading...</div> :
                     ghlData.messages.length === 0 ? <div className="text-xs text-slate-400 text-center py-8">No messages found</div> : (
                       <>
-                        {[...ghlData.messages].reverse().map((m, idx) => {
-                          const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
-                          return (
-                            <div key={idx} className={`max-w-[80%] p-3.5 rounded-2xl text-xs ${isClient ? 'bg-slate-800 text-slate-200 border border-slate-700 mr-auto' : 'bg-blue-600 text-white ml-auto'}`}>
-                              <div className="flex justify-between items-center mb-1 gap-4">
-                                <span className="font-bold">{isClient ? 'Client' : 'Coach'}</span>
-                                <span className="text-[10px] opacity-70">{formatDate(m.dateAdded || m.createdAt || m.date)}</span>
+                        {[...ghlData.messages]
+                          .filter((m) => {
+                            const body = String(m.body || m.message || m.text || m.msg || '').trim();
+                            if (!body) return false;
+
+                            // Hide GHL rows that are only an appointment type name (no real sentence)
+                            const looksLikeTypeOnly =
+                              body.length < 40 &&
+                              !body.includes(' ') === false && // has spaces is ok; check below
+                              !/[.!?]|booked|deleted|created|reschedule|see you|appointment is/i.test(body) &&
+                              /^(inbody|goal setting|follow-?up|scan|consultation|check-?in)/i.test(body);
+
+                            // Simpler rule: only type name, very short, no "booked"/"deleted"/etc.
+                            const shortTypeOnly =
+                              body.length <= 30 &&
+                              !/\b(booked|deleted|created|cancelled|canceled|reschedule|see you|your appointment)\b/i.test(body) &&
+                              /^[A-Za-z0-9 \-]+$/.test(body) &&
+                              body.split(/\s+/).length <= 4;
+
+                            if (shortTypeOnly) return false;
+                            return true;
+                          })
+                          .reverse()
+                          .map((m, idx) => {
+                            const isClient = m.direction === 'inbound' || m.type === 1 || m.direction === 'in';
+
+                            return (
+                              <div key={idx} className={`max-w-[80%] p-3.5 rounded-2xl text-xs ${isClient ? 'bg-slate-800 text-slate-200 border border-slate-700 mr-auto' : 'bg-blue-600 text-white ml-auto'}`}>
+                                <div className="flex justify-between items-center mb-1 gap-4">
+                                  <span className="font-bold">{isClient ? 'Client' : 'Coach'}</span>
+                                  <span className="text-[10px] opacity-70">{formatDate(m.dateAdded || m.createdAt || m.date)}</span>
+                                </div>
+                                <div className="text-sm whitespace-pre-wrap">
+                                  {(() => {
+                                    const body = String(m.body || m.message || m.text || m.msg || '').trim();
+                                    if (body && body !== '[object Object]') return body;
+
+                                    // GHL appointment activity often has type/title but empty body
+                                    const typeName =
+                                      m.appointmentType ||
+                                      m.typeName ||
+                                      m.title ||
+                                      m.subject ||
+                                      (typeof m.type === 'string' ? m.type : '') ||
+                                      '';
+                                    const action = String(m.action || m.status || m.event || m.meta?.action || '').trim();
+
+                                    if (action || typeName) {
+                                      return [action, typeName].filter(Boolean).join(' · ') || 'Appointment update';
+                                    }
+                                    return '[No text]';
+                                  })()}
+                                </div>
+                                {(String(m.type || m.messageType || m.contentType || '').toLowerCase().includes('appointment') ||
+                                  String(m.body || m.message || '').toLowerCase().includes('appointment')) && (
+                                    <div className="text-[10px] opacity-70 mt-1">Appointment activity</div>
+                                  )}
                               </div>
-                              <div className="text-sm whitespace-pre-wrap">{m.body || m.message || m.text || '[Attachment]'}</div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
                         <div ref={messagesEndRef} />
                       </>
                     )}
                 </div>
-                <div className="border border-slate-800 rounded-xl bg-slate-950 p-3 space-y-2">
+                <div className="shrink-0 border-t border-slate-800 bg-slate-950 p-3 space-y-2">
                   <textarea
                     value={smsText}
                     onChange={(e) => setSmsText(e.target.value)}
@@ -2012,11 +2133,114 @@ export default function Clients({ focus, onFocusConsumed }) {
                 coaches={payrollCoaches}
               />
             )}
+                </div>
           </>
         ) : (
           <div className="text-center py-24 text-slate-500">Select a client from the left roster.</div>
         )}
+    
       </main>
+
+      {isBookingOpen && selectedClient && (
+  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-bold text-white">Add booking</h3>
+        <button
+          type="button"
+          onClick={() => setIsBookingOpen(false)}
+          className="text-slate-400 hover:text-white text-xl"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="text-sm text-slate-300">
+        Member:{' '}
+        <span className="font-bold text-white">{selectedClient.name}</span>
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Appointment type</label>
+        <select
+          value={bookingForm.appointmentTypeId}
+          onChange={(e) => {
+            const id = e.target.value;
+            const t = appointmentTypes.find((x) => x.id === id);
+            setBookingForm((prev) => ({
+              ...prev,
+              appointmentTypeId: id,
+              durationMinutes: t?.durationMinutes || prev.durationMinutes,
+            }));
+          }}
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        >
+          <option value="">Select type</option>
+          {appointmentTypes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} ({t.durationMinutes} min)
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Room</label>
+        <select
+          value={bookingForm.roomId}
+          onChange={(e) => setBookingForm((prev) => ({ ...prev, roomId: e.target.value }))}
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        >
+          <option value="">Select room</option>
+          {rooms.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-slate-400 font-medium">Date</label>
+          <input
+            type="date"
+            value={bookingForm.date}
+            onChange={(e) => setBookingForm((prev) => ({ ...prev, date: e.target.value }))}
+            className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 font-medium">Time</label>
+          <input
+            type="time"
+            value={bookingForm.time}
+            onChange={(e) => setBookingForm((prev) => ({ ...prev, time: e.target.value }))}
+            className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Notes</label>
+        <textarea
+          value={bookingForm.notes}
+          onChange={(e) => setBookingForm((prev) => ({ ...prev, notes: e.target.value }))}
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+          rows={2}
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={handleSaveClientBooking}
+        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl"
+      >
+        Create booking
+      </button>
+    </div>
+  </div>
+)}
 
       {isClientModalOpen && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
