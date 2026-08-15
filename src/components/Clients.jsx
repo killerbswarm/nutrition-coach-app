@@ -12,7 +12,6 @@ import {
 } from 'firebase/firestore';
 import { db, storage } from '../firebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
-import AdminInBodyUploadModal from './AdminInBodyUploadModal';
 import InBodyCompareModal from './InBodyCompareModal';
 import { useAuth } from '../context/AuthContext';
 import ClientPayrollPanel from './ClientPayrollPanel';
@@ -455,17 +454,67 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [selectedMeasurement, setSelectedMeasurement] = useState(null);
   const [compareMeasurements, setCompareMeasurements] = useState([]); // max 2
   const [isMeasurementCompareOpen, setIsMeasurementCompareOpen] = useState(false);
-const [isBookingOpen, setIsBookingOpen] = useState(false);
-const [rooms, setRooms] = useState([]);
-const [appointmentTypes, setAppointmentTypes] = useState([]);
-const [bookingForm, setBookingForm] = useState({
-  appointmentTypeId: '',
-  roomId: '',
-  date: new Date().toISOString().split('T')[0],
-  time: '10:00',
-  durationMinutes: 15,
-  notes: '',
-});
+  const [isBookingOpen, setIsBookingOpen] = useState(false);
+  const [rooms, setRooms] = useState([]);
+  const [appointmentTypes, setAppointmentTypes] = useState([]);
+  const [bookingForm, setBookingForm] = useState({
+    appointmentTypeId: '',
+    roomId: '',
+    date: new Date().toISOString().split('T')[0],
+    time: '10:00',
+    durationMinutes: 15,
+    notes: '',
+  });
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [clientSearchResults, setClientSearchResults] = useState([]);
+  const [isClientSearching, setIsClientSearching] = useState(false);
+
+
+  useEffect(() => {
+  const isOwnerUser =
+    isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner';
+  if (!isOwnerUser && clientListFilter !== 'active') {
+    setClientListFilter('active');
+  }
+}, [isOwner, currentUserRole, clientListFilter]);
+
+  useEffect(() => {
+    if (editingClient) return;
+    if (!isClientModalOpen) return;
+
+    if (clientForm.ghlContactId) {
+      setClientSearchResults([]);
+      return;
+    }
+
+    const q = (clientSearchQuery || '').trim();
+    if (q.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+
+    const t = setTimeout(async () => {
+      setIsClientSearching(true);
+      try {
+        const res = await fetch(
+          `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(q)}`
+        );
+        const data = await res.json();
+        if (data.success && Array.isArray(data.contacts)) {
+          setClientSearchResults(data.contacts);
+        } else {
+          setClientSearchResults([]);
+        }
+      } catch (e) {
+        console.error(e);
+        setClientSearchResults([]);
+      } finally {
+        setIsClientSearching(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(t);
+  }, [clientSearchQuery, isClientModalOpen, editingClient, clientForm.ghlContactId]);
 
 useEffect(() => {
   const u1 = onSnapshot(collection(db, 'rooms'), (snap) => {
@@ -502,10 +551,6 @@ useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setClients(docs);
-      if (docs.length > 0 && !selectedClient) {
-        setSelectedClient(docs[0]);
-        setActiveTab('overview');
-      }
     });
     return () => unsub();
   }, []);
@@ -660,11 +705,24 @@ useEffect(() => {
     return () => unsub();
   }, [selectedClient?.id]);
 
-  const roleFilteredClients = clients.filter((c) => {
-    if (currentUserRole === 'Owner') return true;
-    // Coach: only clients assigned to this login (must have matching coachId)
-    return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
-  });
+const roleFilteredClients = (clients || []).filter((c) => {
+  const isOwnerUser =
+    isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner';
+
+  if (isOwnerUser) return true;
+
+  // Coach
+  const uid = currentUser?.uid;
+  if (!uid) return false;
+
+  // Must be assigned to this coach
+  if (!(c.coachId && String(c.coachId) === String(uid))) return false;
+
+  // Coaches never see inactive
+  if ((c.status || 'active') !== 'active') return false;
+
+  return true;
+});
 
   const filteredClients = roleFilteredClients.filter((c) => {
     const status = c.status || 'active';
@@ -727,12 +785,60 @@ useEffect(() => {
     });
     return Object.values(groups).sort((a, b) => b.scans.length - a.scans.length);
   })();
+
+  const getMyCoachLabel = () => {
+  const uid = currentUser?.uid;
+  const email = (currentUser?.email || '').toLowerCase();
+  const me =
+    (coaches || []).find((u) => u.id === uid) ||
+    (coaches || []).find((u) => (u.email || '').toLowerCase() === email);
+  return (
+    me?.name ||
+    currentUser?.displayName ||
+    currentUser?.email ||
+    ''
+  );
+};
+
   const openAddClient = () => {
+  try {
+    const isCoachOnly = !(
+      isOwner ||
+      currentUserRole === 'Owner' ||
+      currentUserRole === 'owner'
+    );
+    const uid = currentUser?.uid || '';
+    const email = (currentUser?.email || '').toLowerCase();
+    const me =
+      (coaches || []).find((u) => u.id === uid) ||
+      (coaches || []).find((u) => (u.email || '').toLowerCase() === email);
+
+    const coachName =
+      me?.name || currentUser?.displayName || currentUser?.email || '';
+
     setEditingClient(null);
-    setClientForm({ name: '', email: '', phone: '', coach: '', coachId: '', ghlContactId: '', status: 'active', nameAliases: '', mfpUsername: '', });
+    setClientForm({
+      name: '',
+      email: '',
+      phone: '',
+      coach: isCoachOnly ? coachName : '',
+      coachId: isCoachOnly ? uid : '',
+      ghlContactId: '',
+      status: 'active',
+      nameAliases: '',
+      mfpUsername: '',
+    });
+    setClientSearchQuery('');
+    setClientSearchResults([]);
     setIsClientModalOpen(true);
-  };
-  const openEditClient = (c) => {
+  } catch (e) {
+    console.error(openAddClient, e);
+    alert('Add client error: ' + e.message);
+  }
+};
+ const openEditClient = (c) => {
+  try {
+    if (!c?.id) return;
     setEditingClient(c);
     setClientForm({
       name: c.name || '',
@@ -744,11 +850,18 @@ useEffect(() => {
       status: c.status || 'active',
       nameAliases: Array.isArray(c.nameAliases)
         ? c.nameAliases.join(', ')
-        : (c.nameAliases || ''),
+        : c.nameAliases || '',
       mfpUsername: c.mfpUsername || '',
     });
+    setClientSearchQuery('');
+    setClientSearchResults([]);
     setIsClientModalOpen(true);
-  };
+  } catch (err) {
+    console.error('openEditClient', err);
+    alert('Edit failed: ' + err.message);
+  }
+};
+
   const handleFindGhlInfo = async () => {
     const q = (clientForm.phone || clientForm.email || clientForm.name || '').trim();
     if (!q) return alert('Enter a phone, email, or name first');
@@ -781,6 +894,8 @@ useEffect(() => {
         phone: match.phone || prev.phone || '',
         ghlContactId: match.id || prev.ghlContactId || '',
       }));
+      setClientSearchQuery('');      // important: empty query
+      setClientSearchResults([]);  // hide list
     } catch (e) {
       alert('GHL lookup failed: ' + e.message);
     } finally {
@@ -788,40 +903,86 @@ useEffect(() => {
     }
   };
 
-  const handleSaveClient = async () => {
-    if (!clientForm.name.trim()) return alert('Name is required');
-    try {
-      const payload = {
-        name: clientForm.name.trim(),
-        email: clientForm.email.trim(),
-        phone: clientForm.phone.trim(),
-        coach: clientForm.coach.trim(),
-        coachId: clientForm.coachId || '',
-        ghlContactId: clientForm.ghlContactId.trim(),
-        status: clientForm.status || 'active',
-        mfpUsername: (clientForm.mfpUsername || '').trim().replace(/^@/, ''),
-        nameAliases: String(clientForm.nameAliases || '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      };
-      if (editingClient) {
-        await updateDoc(doc(db, 'clients', editingClient.id), {
-          ...payload,
-          updatedAt: new Date(),
-        });
-      } else {
-        await addDoc(collection(db, 'clients'), {
-          ...payload,
-          status: 'active',
-          createdAt: new Date(),
-        });
-      }
-      setIsClientModalOpen(false);
-    } catch (err) {
-      alert('Failed to save: ' + err.message);
-    }
+ const handleSaveClient = async () => {
+  if (!clientForm.name.trim()) return alert('Name is required');
+
+  const isCoachOnly = !(isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner');
+
+  const payload = {
+    name: clientForm.name.trim(),
+    email: (clientForm.email || '').trim(),
+    phone: (clientForm.phone || '').trim(),
+    coach: isCoachOnly ? getMyCoachLabel() : (clientForm.coach || '').trim(),
+    coachId: isCoachOnly ? currentUser?.uid || '' : clientForm.coachId || '',
+    ghlContactId: (clientForm.ghlContactId || '').trim(),
+    status: clientForm.status || 'active',
+    mfpUsername: (clientForm.mfpUsername || '').trim().replace(/^@/, ''),
+    nameAliases: String(clientForm.nameAliases || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    updatedAt: new Date(),
   };
+
+  try {
+    // ---- Edit existing (opened from pencil) ----
+    if (editingClient) {
+      await updateDoc(doc(db, 'clients', editingClient.id), payload);
+      setIsClientModalOpen(false);
+      return;
+    }
+
+    // ---- Add: find existing by GHL id or phone (avoid duplicate) ----
+    const ghlId = payload.ghlContactId;
+    const phoneDigits = String(payload.phone || '').replace(/\D/g, '');
+
+    const existing =
+      (ghlId &&
+        clients.find(
+          (c) => c.ghlContactId && String(c.ghlContactId) === String(ghlId)
+        )) ||
+      (phoneDigits.length >= 7 &&
+        clients.find((c) => {
+          const p = String(c.phone || '').replace(/\D/g, '');
+          return (
+            p.length >= 7 &&
+            (p.endsWith(phoneDigits.slice(-10)) ||
+              phoneDigits.endsWith(p.slice(-10)))
+          );
+        })) ||
+      null;
+
+    if (existing) {
+      await updateDoc(doc(db, 'clients', existing.id), {
+        ...payload,
+        status: 'active', // reactivate
+        // keep nameAliases merge if you want:
+        nameAliases: [
+          ...new Set([
+            ...(Array.isArray(existing.nameAliases) ? existing.nameAliases : []),
+            ...(payload.nameAliases || []),
+          ]),
+        ],
+      });
+      setSelectedClient({ ...existing, ...payload, status: 'active' });
+      setActiveTab('overview');
+      setIsClientModalOpen(false);
+      return;
+    }
+
+    // ---- Truly new ----
+    const docRef = await addDoc(collection(db, 'clients'), {
+      ...payload,
+      status: 'active',
+      createdAt: new Date(),
+    });
+    setSelectedClient({ id: docRef.id, ...payload, status: 'active' });
+    setActiveTab('overview');
+    setIsClientModalOpen(false);
+  } catch (err) {
+    alert('Failed to save: ' + err.message);
+  }
+};
 
   const handleDeleteClient = async (c) => {
     if (!window.confirm(`Delete "${c.name}"?`)) return;
@@ -1105,10 +1266,12 @@ useEffect(() => {
               )}
             </div>
           </div>
+          {(isOwner || currentUserRole === 'Owner') && (
           <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
             <button onClick={() => setClientListFilter('active')} className={`flex-1 py-1.5 font-bold rounded-md transition-all ${clientListFilter === 'active' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Active</button>
             <button onClick={() => setClientListFilter('inactive')} className={`flex-1 py-1.5 font-bold rounded-md transition-all ${clientListFilter === 'inactive' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Inactive</button>
           </div>
+          )}
           <input type="text" value={clientSearchTerm} onChange={(e) => setClientSearchTerm(e.target.value)} placeholder="Search..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500" />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -1154,16 +1317,16 @@ useEffect(() => {
                           </span>
                         </div>
                         <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditClient(c);
-                          }}
-                          className="shrink-0 p-1.5 text-slate-400 hover:text-blue-400 rounded-lg"
-                          title="Edit"
-                        >
-                          ✏️
-                        </button>
+  type="button"
+  onClick={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openEditClient(c);
+  }}
+  className="p-1 text-slate-400 hover:text-blue-400"
+>
+  ✏️
+</button>
                       </div>
                     );
                   })}
@@ -1196,9 +1359,6 @@ useEffect(() => {
                   <span className="px-3 py-1 text-xs font-semibold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Coach: {selectedClient.coach || 'Unassigned'}</span>
                 </div>
               </div>
-              {currentUserRole === 'Owner' && (
-                <button onClick={() => setIsAdminUploadOpen(true)} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg">Owner Admin: Upload Master CSV</button>
-              )}
             </div>
 
             <div className="flex border-b border-slate-800 mb-6 gap-6 flex-wrap">
@@ -2243,92 +2403,213 @@ useEffect(() => {
 )}
 
       {isClientModalOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white">{editingClient ? 'Edit Client' : 'Add New Client'}</h3>
-              <button onClick={() => setIsClientModalOpen(false)} className="text-slate-400 hover:text-white text-xl">×</button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Full Name *</label>
-                <input
-                  type="text"
-                  value={clientForm.name}
-                  onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })}
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
+  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-bold text-white">
+          {editingClient ? 'Edit Client' : 'Add New Client'}
+        </h3>
+        <button
+          type="button"
+          onClick={() => setIsClientModalOpen(false)}
+          className="text-slate-400 hover:text-white text-xl"
+        >
+          ×
+        </button>
+      </div>
 
-              <div>
-                <label className="text-xs text-slate-400 font-medium">
-                  Name aliases (payroll / nicknames)
-                </label>
-                <input
-                  type="text"
-                  value={clientForm.nameAliases || ''}
-                  onChange={(e) => setClientForm({ ...clientForm, nameAliases: e.target.value })}
-                  placeholder="Abi Guaren, Abi G"
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">
-                  Comma-separated. Matches automated payroll names to this client.
-                </p>
-              </div>
-              <div><label className="text-xs text-slate-400 font-medium">Email</label><input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
-              <div><label className="text-xs text-slate-400 font-medium">Phone</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
-              <div><label className="text-xs text-slate-400 font-medium">MFP Username</label><input type="text" value={clientForm.mfpUsername} onChange={(e) => setClientForm({ ...clientForm, mfpUsername: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Assigned Coach</label>
-                <select
-                  value={clientForm.coachId || ''}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    const coachUser = coaches.find((c) => c.id === id);
-                    setClientForm({
-                      ...clientForm,
-                      coachId: id,
-                      coach: coachUser ? (coachUser.name || coachUser.email || '') : '',
-                    });
-                  }}
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">Unassigned</option>
-                  {coaches.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name || c.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Status</label>
-                <select
-                  value={clientForm.status || 'active'}
-                  onChange={(e) => setClientForm({ ...clientForm, status: e.target.value })}
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-              <div><label className="text-xs text-slate-400 font-medium">GHL Contact ID</label><input type="text" value={clientForm.ghlContactId} onChange={(e) => setClientForm({ ...clientForm, ghlContactId: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" /></div>
-            </div>
-            <button
-              type="button"
-              onClick={handleFindGhlInfo}
-              disabled={isFindingGhl}
-              className="w-full py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-50"
-            >
-              {isFindingGhl ? 'Searching GHL...' : 'Find info from GHL'}
-            </button>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setIsClientModalOpen(false)} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300">Cancel</button>
-              <button onClick={handleSaveClient} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white">{editingClient ? 'Save Changes' : 'Add Client'}</button>
-            </div>
-          </div>
+      {/* NAME + live search (add only) */}
+    <div>
+  <label className="text-xs text-slate-400 font-medium">Full name *</label>
+
+  {!editingClient && clientForm.ghlContactId && clientForm.name ? (
+    <div className="mt-1 flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-blue-600/15 border border-blue-500/30">
+      <div className="min-w-0">
+        <div className="text-sm font-bold text-white truncate">{clientForm.name}</div>
+        <div className="text-[10px] text-slate-400">Selected</div>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setClientForm((prev) => ({
+            ...prev,
+            name: '',
+            email: '',
+            phone: '',
+            ghlContactId: '',
+          }));
+          setClientSearchQuery('');
+          setClientSearchResults([]);
+        }}
+        className="text-xs font-bold text-slate-300 hover:text-white shrink-0"
+      >
+        Change
+      </button>
+    </div>
+  ) : (
+    <>
+      <input
+        type="text"
+        value={editingClient ? clientForm.name : clientSearchQuery}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (editingClient) {
+            setClientForm({ ...clientForm, name: v });
+          } else {
+            setClientSearchQuery(v);
+            setClientForm({
+              ...clientForm,
+              name: v,
+              ghlContactId: '', // typing again = not selected
+            });
+          }
+        }}
+        placeholder="Start typing a name..."
+        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+      />
+      {!editingClient && isClientSearching && (
+        <div className="text-[11px] text-slate-500 mt-1">Searching…</div>
+      )}
+      {!editingClient && !clientForm.ghlContactId && clientSearchResults.length > 0 && (
+        <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-slate-800 divide-y divide-slate-800">
+          {clientSearchResults.map((contact) => {
+            const displayName = toTitleCase(contact.name || '');
+            return (
+              <button
+                key={contact.id}
+                type="button"
+                onClick={() => {
+                  setClientForm((prev) => ({
+                    ...prev,
+                    name: displayName,
+                    email: contact.email || '',
+                    phone: contact.phone || '',
+                    ghlContactId: contact.id || '',
+                  }));
+                  setClientSearchQuery('');
+                  setClientSearchResults([]);
+                }}
+                className="w-full text-left px-3 py-2.5 hover:bg-slate-800"
+              >
+                <div className="text-sm font-semibold text-white">{displayName}</div>
+              </button>
+            );
+          })}
         </div>
       )}
+    </>
+  )}
+</div>
+
+      {/* Optional aliases — keep if you use payroll */}
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Name aliases (optional)</label>
+        <input
+          type="text"
+          value={clientForm.nameAliases || ''}
+          onChange={(e) => setClientForm({ ...clientForm, nameAliases: e.target.value })}
+          placeholder="Nicknames, payroll names…"
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        />
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Email</label>
+        <input
+          type="email"
+          value={clientForm.email || ''}
+          onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })}
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        />
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Phone</label>
+        <input
+          type="tel"
+          value={clientForm.phone || ''}
+          onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })}
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        />
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">MyFitnessPal username</label>
+        <input
+          type="text"
+          value={clientForm.mfpUsername || ''}
+          onChange={(e) => setClientForm({ ...clientForm, mfpUsername: e.target.value })}
+          placeholder="username (no @)"
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        />
+      </div>
+
+      <div>
+  <label className="text-xs text-slate-400 font-medium">Assigned coach</label>
+  {isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner' ? (
+    <select
+      value={clientForm.coachId || ''}
+      onChange={(e) => {
+        const id = e.target.value;
+        const coachUser = (coaches || []).find((c) => c.id === id);
+        setClientForm({
+          ...clientForm,
+          coachId: id,
+          coach: coachUser ? coachUser.name || coachUser.email || '' : '',
+        });
+      }}
+      className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+    >
+      <option value="">Unassigned</option>
+      {(coaches || []).map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name || c.email}
+        </option>
+      ))}
+    </select>
+  ) : (
+    <input
+      type="text"
+      value={clientForm.coach || getMyCoachLabel()}
+      disabled
+      className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+    />
+  )}
+</div>
+
+      <div>
+        <label className="text-xs text-slate-400 font-medium">Status</label>
+        <select
+          value={clientForm.status || 'active'}
+          onChange={(e) => setClientForm({ ...clientForm, status: e.target.value })}
+          className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+        >
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      {/* NO "GHL Contact ID" field, NO "Find info from GHL" button — id is set when they pick a result */}
+
+      <div className="flex gap-3 pt-2">
+        <button
+          type="button"
+          onClick={() => setIsClientModalOpen(false)}
+          className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 text-slate-300"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSaveClient}
+          className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white"
+        >
+          {editingClient ? 'Save Changes' : 'Add Client'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {isGhlLookupOpen && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
@@ -2541,8 +2822,7 @@ useEffect(() => {
       )}
       {selectedScan && <InBodyResultSheetModal scan={selectedScan} onClose={() => setSelectedScan(null)} onDelete={handleDeleteScan} />}
       {compareScans.length === 2 && <InBodyCompareModal scanA={compareScans[0]} scanB={compareScans[1]} onClose={() => { setCompareScans([]); setIsCompareMode(false); }} />}
-      <AdminInBodyUploadModal isOpen={isAdminUploadOpen} onClose={() => setIsAdminUploadOpen(false)} clients={clients} onComplete={() => { }} />
-    </div>
+      </div>
 
   );
 

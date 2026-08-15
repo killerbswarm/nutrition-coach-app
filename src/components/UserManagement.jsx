@@ -32,9 +32,11 @@ export default function UserManagement() {
     email: "",
     phone: "",
     role: "coach",
+    ghlUserId: "",
   });
   const [selectedStaff, setSelectedStaff] = useState(null); // user object or null
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [ghlUserId, setGhlUserId] = useState("");
   
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "users"), (snapshot) => {
@@ -50,6 +52,7 @@ export default function UserManagement() {
       email: u.email || "",
       phone: u.phone || "",
       role: u.role || "coach",
+      ghlUserId: u.ghlUserId || "",
     });
     setIsEditOpen(true);
   };
@@ -62,6 +65,7 @@ export default function UserManagement() {
         name: editForm.name.trim(),
         phone: editForm.phone.trim(),
         role: editForm.role,
+        ghlUserId: (editForm.ghlUserId || "").trim(),
         // email usually stays the Auth login — only update display field if you want:
         // email: editForm.email.trim().toLowerCase(),
         updatedAt: new Date(),
@@ -92,12 +96,13 @@ export default function UserManagement() {
       const newUser = userCredential.user;
 
       await setDoc(doc(db, "users", newUser.uid), {
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone.trim(),
-        role: role,
-        createdAt: new Date(),
-      });
+  name: name.trim(),
+  email: email.trim().toLowerCase(),
+  phone: phone.trim(),
+  role: role,
+  ghlUserId: (ghlUserId || "").trim(),
+  createdAt: new Date(),
+});
 
       await signOut(secondaryAuth);
       await deleteApp(secondaryApp);
@@ -109,6 +114,7 @@ export default function UserManagement() {
       setPassword("");
       setRole("coach");
       setIsAddOpen(false);
+      setGhlUserId("");
     } catch (err) {
       console.error("Error creating user:", err);
       setError(err.message);
@@ -306,6 +312,19 @@ export default function UserManagement() {
                 />
               </div>
               <div>
+  <label className="text-xs text-slate-400 font-medium">GHL User ID</label>
+  <input
+    type="text"
+    value={editForm.ghlUserId}
+    onChange={(e) => setEditForm({ ...editForm, ghlUserId: e.target.value })}
+    placeholder="GoHighLevel user id for this coach"
+    className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+  />
+  <p className="text-[10px] text-slate-500 mt-1">
+    Used so Slack / appointments show this coach, not Swarm App
+  </p>
+</div>
+              <div>
                 <label className="text-xs text-slate-400 font-medium">Temp Password</label>
                 <input
                   type="text"
@@ -376,6 +395,19 @@ export default function UserManagement() {
                   className={inputClass}
                 />
               </div>
+              <div>
+  <label className="text-xs text-slate-400 font-medium">GHL User ID</label>
+  <input
+    type="text"
+    value={editForm.ghlUserId || ''}
+    onChange={(e) => setEditForm({ ...editForm, ghlUserId: e.target.value })}
+    placeholder="GoHighLevel user id for this coach"
+    className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+  />
+  <p className="text-[10px] text-slate-500 mt-1">
+    So Slack / appointments show this coach, not Swarm App
+  </p>
+</div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Role</label>
                 <select

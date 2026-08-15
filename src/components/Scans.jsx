@@ -10,6 +10,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
+import AdminInBodyUploadModal from './AdminInBodyUploadModal';
+import { useAuth } from '../context/AuthContext';
 
 const parseScanDate = (dateVal) => {
   if (!dateVal) return null;
@@ -59,6 +61,16 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
   const [editForm, setEditForm] = useState({
     clientName: '', phone: '', weight: '', smm: '', pbf: '', score: '', scanDate: '',
   });
+  const { isOwner, currentUserRole } = useAuth();
+  const [isAdminUploadOpen, setIsAdminUploadOpen] = useState(false);
+  const [clients, setClients] = useState([]);
+
+  useEffect(() => {
+  const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
+    setClients(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+  return () => unsub();
+}, []);
 
   useEffect(() => {
     const q = query(collection(db, 'inbody_scans'), orderBy('scanDate', 'desc'));
@@ -153,6 +165,15 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
           <h2 className="text-2xl font-black text-white">All Scans</h2>
           <p className="text-xs text-slate-400 mt-1">{scans.length} total scans in database</p>
         </div>
+        {(isOwner || currentUserRole === 'Owner') && (
+  <button
+    type="button"
+    onClick={() => setIsAdminUploadOpen(true)}
+    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg"
+  >
+    Upload Master CSV
+  </button>
+)}
         <input
           type="text"
           value={search}
@@ -307,6 +328,12 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
           onDelete={handleDelete}
         />
       )}
+      <AdminInBodyUploadModal
+  isOpen={isAdminUploadOpen}
+  onClose={() => setIsAdminUploadOpen(false)}
+  clients={clients}
+  onComplete={() => {}}
+/>
     </main>
   );
 }

@@ -94,6 +94,15 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   const bookingsOn = (ymd) =>
     (bookings || []).filter((b) => b.date === ymd);
 
+  const [staffUsers, setStaffUsers] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      setStaffUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
+
   const bookingClientOptions = (clients || []).filter((c) => {
     const active = (c.status || 'active') === 'active';
     if (!active) return false;
@@ -352,6 +361,14 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
 
     const client = clients.find((c) => c.id === newBooking.clientId);
     const coachName = newBooking.coach || client?.coach || '';
+    const staffDoc =
+      staffUsers.find((u) => u.id === currentUser?.uid) ||
+      staffUsers.find(
+        (u) =>
+          (u.email || '').toLowerCase() === (currentUser?.email || '').toLowerCase()
+      );
+
+    const ghlAssignedUserId = (staffDoc?.ghlUserId || '').trim();
 
     const payload = {
       clientId: newBooking.clientId || '',
@@ -368,8 +385,13 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       coach: coachName,
       coachEmail: newBooking.coachEmail || '',
       // who created this booking in the app
+      ghlAssignedUserId,
       bookedByUid: currentUser?.uid || '',
-      bookedByName: currentUser?.displayName || currentUser?.email || '',
+      bookedByName:
+        staffDoc?.name ||
+        currentUser?.displayName ||
+        currentUser?.email ||
+        '',
       bookedByEmail: currentUser?.email || '',
       updatedAt: new Date(),
     };
@@ -532,21 +554,21 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
     })),
   ];
 
- const filteredAppointments = allAppointments.filter((a) => {
-  if (selectedRoomFilter !== 'ALL' && a.roomId !== selectedRoomFilter) {
-    return false;
-  }
-  if (bookingFilter === 'mine') {
-    const uid = currentUser?.uid;
-    const email = (currentUser?.email || '').toLowerCase();
-    if (a.bookedByUid && uid) return a.bookedByUid === uid;
-    if (a.bookedByEmail && email) {
-      return String(a.bookedByEmail).toLowerCase() === email;
+  const filteredAppointments = allAppointments.filter((a) => {
+    if (selectedRoomFilter !== 'ALL' && a.roomId !== selectedRoomFilter) {
+      return false;
     }
-    return false;
-  }
-  return true;
-});
+    if (bookingFilter === 'mine') {
+      const uid = currentUser?.uid;
+      const email = (currentUser?.email || '').toLowerCase();
+      if (a.bookedByUid && uid) return a.bookedByUid === uid;
+      if (a.bookedByEmail && email) {
+        return String(a.bookedByEmail).toLowerCase() === email;
+      }
+      return false;
+    }
+    return true;
+  });
 
 
   useEffect(() => {
@@ -723,130 +745,126 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
               </div>
             )}
           </div>
-{calView === 'list' && (
-  <div className="space-y-3">
-    <div className="flex gap-1.5">
-      <button
-        type="button"
-        onClick={() => setBookingFilter('all')}
-        className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-          bookingFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
-        }`}
-      >
-        All bookings
-      </button>
-      <button
-        type="button"
-        onClick={() => setBookingFilter('mine')}
-        className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-          bookingFilter === 'mine' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
-        }`}
-      >
-        My bookings
-      </button>
-    </div>
-
-    {filteredAppointments.length === 0 ? (
-      <div className="text-center py-12 text-xs text-slate-500">
-        {bookingFilter === 'mine'
-          ? "No bookings you created. Switch to All bookings to see everyone's."
-          : 'No appointments scheduled. Click Add New Booking to create one.'}
-      </div>
-    ) : (
-      filteredAppointments.map((appt) => {
-        const past = isPastAppointment(appt);
-        return (
-          <div
-            key={appt.id}
-            className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${
-              past
-                ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
-                : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
-            }`}
-          >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                {past ? (
-                  <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
-                    Past
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
-                    Upcoming
-                  </span>
-                )}
-                <span
-                  className={`font-bold text-sm ${
-                    past ? 'text-slate-400 line-through' : 'text-white'
-                  }`}
+          {calView === 'list' && (
+            <div className="space-y-3">
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBookingFilter('all')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg ${bookingFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+                    }`}
                 >
-                  {appt.appointmentTypeName || 'Appointment'}
-                </span>
-                {appt.roomName && (
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                    {appt.roomName}
-                  </span>
-                )}
-                {appt.durationMinutes && (
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    {appt.durationMinutes} min
-                  </span>
-                )}
+                  All bookings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBookingFilter('mine')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg ${bookingFilter === 'mine' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+                    }`}
+                >
+                  My bookings
+                </button>
               </div>
 
-              <div className={`text-sm mt-1 ${past ? 'text-slate-500' : 'text-slate-200'}`}>
-                Member: {appt.clientName || '—'}
-              </div>
-
-              {(appt.bookedByName || appt.bookedByEmail) && (
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  Booked by{' '}
-                  {appt.bookedByName && !String(appt.bookedByName).includes('@')
-                    ? appt.bookedByName
-                    : toTitleCase(
-                        String(appt.bookedByName || appt.bookedByEmail || '')
-                          .split('@')[0]
-                          .replace(/[._]/g, ' ')
-                      )}
+              {filteredAppointments.length === 0 ? (
+                <div className="text-center py-12 text-xs text-slate-500">
+                  {bookingFilter === 'mine'
+                    ? "No bookings you created. Switch to All bookings to see everyone's."
+                    : 'No appointments scheduled. Click Add New Booking to create one.'}
                 </div>
-              )}
+              ) : (
+                filteredAppointments.map((appt) => {
+                  const past = isPastAppointment(appt);
+                  return (
+                    <div
+                      key={appt.id}
+                      className={`p-4 rounded-xl flex justify-between items-center gap-4 transition-all border-l-4 ${past
+                          ? 'bg-slate-900/40 border border-slate-800 border-l-slate-500 opacity-80'
+                          : 'bg-slate-950 border border-slate-800 border-l-blue-500 hover:border-slate-700'
+                        }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {past ? (
+                            <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-slate-600 text-white">
+                              Past
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wide rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+                              Upcoming
+                            </span>
+                          )}
+                          <span
+                            className={`font-bold text-sm ${past ? 'text-slate-400 line-through' : 'text-white'
+                              }`}
+                          >
+                            {appt.appointmentTypeName || 'Appointment'}
+                          </span>
+                          {appt.roomName && (
+                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                              {appt.roomName}
+                            </span>
+                          )}
+                          {appt.durationMinutes && (
+                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              {appt.durationMinutes} min
+                            </span>
+                          )}
+                        </div>
 
-              {appt.notes && (
-                <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+                        <div className={`text-sm mt-1 ${past ? 'text-slate-500' : 'text-slate-200'}`}>
+                          Member: {appt.clientName || '—'}
+                        </div>
+
+                        {(appt.bookedByName || appt.bookedByEmail) && (
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            Booked by{' '}
+                            {appt.bookedByName && !String(appt.bookedByName).includes('@')
+                              ? appt.bookedByName
+                              : toTitleCase(
+                                String(appt.bookedByName || appt.bookedByEmail || '')
+                                  .split('@')[0]
+                                  .replace(/[._]/g, ' ')
+                              )}
+                          </div>
+                        )}
+
+                        {appt.notes && (
+                          <div className="text-[11px] text-slate-500 italic mt-1">{appt.notes}</div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
+                          <div className="font-semibold">{appt.date}</div>
+                          <div>{appt.time}</div>
+                        </div>
+
+                        {canModifyBooking(appt) && (
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openEditBooking(appt)}
+                              className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBooking(appt.id)}
+                              className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
-
-            <div className="flex items-center gap-3 shrink-0">
-              <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
-                <div className="font-semibold">{appt.date}</div>
-                <div>{appt.time}</div>
-              </div>
-
-              {canModifyBooking(appt) && (
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => openEditBooking(appt)}
-                    className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteBooking(appt.id)}
-                    className="px-2 py-1 text-[10px] font-bold rounded-lg text-red-400 hover:bg-red-500/10"
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })
-    )}
-  </div>
-)}
+          )}
 
           {calView === 'day' && (
             <div className="space-y-2">
@@ -1036,19 +1054,22 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   </div>
                 ) : (
                   <>
+                  
                     <input
                       type="text"
                       value={memberQuery}
                       onChange={(e) => setMemberQuery(e.target.value)}
-                      placeholder="Search your clients..."
+                      placeholder="Search all Swarm clients..."
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
                     />
                     <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-800 divide-y divide-slate-800">
+                      
                       {filteredMemberOptions.length === 0 ? (
                         <div className="px-3 py-4 text-xs text-slate-500 text-center">
                           No clients match
                         </div>
                       ) : (
+                        
                         filteredMemberOptions.map((c) => (
                           <button
                             key={c.id}
