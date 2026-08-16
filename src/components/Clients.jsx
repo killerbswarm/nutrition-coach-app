@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   collection,
   onSnapshot,
@@ -11,12 +11,9 @@ import {
   where,
   deleteField,
 } from 'firebase/firestore';
-import { db, storage } from '../firebase';
-import InBodyResultSheetModal from './InBodyResultSheetModal';
-import InBodyCompareModal from './InBodyCompareModal';
+import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import ClientPayrollPanel from './ClientPayrollPanel';
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 //import pages 
 import ClientFoodLog from './ClientFoodLog';
 import ClientInBody from './ClientInBody';
@@ -28,386 +25,12 @@ import ClientSms from './ClientSms';
 import ClientNotes from './ClientNotes';
 import ClientOverview from './ClientOverview';
 
-const MEASUREMENT_FIELDS = [
-  { key: 'neck', label: 'Neck' },
-  { key: 'shoulder', label: 'Shoulder' },
-  { key: 'rBicep', label: 'R. Bicep' },
-  { key: 'lBicep', label: 'L. Bicep' },
-  { key: 'chest', label: 'Chest' },
-  { key: 'waist', label: 'Waist' },
-  { key: 'hips', label: 'Hips' },
-  { key: 'rThigh', label: 'R. Thigh' },
-  { key: 'lThigh', label: 'L. Thigh' },
-  { key: 'rCalf', label: 'R. Calf' },
-  { key: 'lCalf', label: 'L. Calf' },
-];
-
-const emptyMeasurementForm = () => {
-  const o = {
-    date: new Date().toISOString().split('T')[0],
-    notes: '',
-  };
-  MEASUREMENT_FIELDS.forEach((f) => {
-    o[f.key] = '';
-  });
-  return o;
-};
-
-const handleSendSms = async () => {
-  if (!selectedClient?.ghlContactId) {
-    return alert('Client has no GHL Contact ID');
-  }
-  if (!smsText.trim() && !smsFile) return;
-
-  setIsSendingSms(true);
-  try {
-    let attachmentUrl = null;
-    if (smsFile) {
-      const storage = getStorage();
-      const path = `sms-attachments/${selectedClient.id}/${Date.now()}_${smsFile.name}`;
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, smsFile);
-      attachmentUrl = await getDownloadURL(storageRef);
-    }
-
-    const res = await fetch(
-      'https://us-central1-swarm-nutrition-app.cloudfunctions.net/sendGhlSms',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contactId: selectedClient.ghlContactId,
-          message: smsText.trim() || (attachmentUrl ? ' ' : ''),
-          attachments: attachmentUrl ? [attachmentUrl] : [],
-        }),
-      }
-    );
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      alert(data.error || 'Send failed');
-      return;
-    }
-    setSmsText('');
-    setSmsFile(null);
-    // refresh messages if you have a loader
-  } catch (e) {
-    alert(e.message);
-  } finally {
-    setIsSendingSms(false);
-  }
-};
-
-const parseScanDate = (dateVal) => {
-  if (!dateVal) return null;
-  if (typeof dateVal === 'object' && dateVal.seconds) return new Date(dateVal.seconds * 1000);
-  if (dateVal instanceof Date && !isNaN(dateVal.getTime())) return dateVal;
-  const str = String(dateVal).trim();
-  if (/^\d{8,14}$/.test(str)) {
-    const year = str.substring(0, 4);
-    const month = str.substring(4, 6);
-    const day = str.substring(6, 8);
-    const hour = str.length >= 10 ? str.substring(8, 10) : '12';
-    const min = str.length >= 12 ? str.substring(10, 12) : '00';
-    const sec = str.length >= 14 ? str.substring(12, 14) : '00';
-    const d = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}`);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  const cleaned = str.replace(/\./g, '-').replace(/\//g, '-').replace(' ', 'T');
-  const d = new Date(cleaned);
-  if (!isNaN(d.getTime())) return d;
-  const fallback = new Date(str);
-  return isNaN(fallback.getTime()) ? null : fallback;
-};
-
-const formatDate = (dateVal) => {
-  const d = parseScanDate(dateVal);
-  if (!d) return 'Unknown Date';
-  return d.toLocaleDateString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  });
-};
-
 const toTitleCase = (str) => {
   if (!str) return '';
   return String(str).toLowerCase().split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 };
 
 const normalizePhone = (p) => String(p || '').replace(/\D/g, '');
-
-function InBodyProgressChart({ scans }) {
-  const [metric, setMetric] = useState('weight');
-  if (!scans || scans.length === 0) return null;
-  const sortedScans = [...scans].sort((a, b) => (parseScanDate(a.scanDate)?.getTime() ?? 0) - (parseScanDate(b.scanDate)?.getTime() ?? 0));
-  if (sortedScans.length < 2) return <div className="text-xs text-slate-400 text-center py-4">Log at least 2 scans to view progress trends.</div>;
-  const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
-  const firstScan = sortedScans[0];
-  const latestScan = sortedScans[sortedScans.length - 1];
-  const weightDiff = (num(latestScan.weight) - num(firstScan.weight)).toFixed(1);
-  const smmDiff = (num(latestScan.smm) - num(firstScan.smm)).toFixed(1);
-  const pbfDiff = (num(latestScan.pbf) - num(firstScan.pbf)).toFixed(1);
-  const metricConfigs = {
-    weight: { label: 'Weight', color: '#3b82f6', getValue: (s) => num(s.weight) },
-    smm: { label: 'Muscle (SMM)', color: '#10b981', getValue: (s) => num(s.smm) },
-    pbf: { label: 'Body Fat %', color: '#a855f7', getValue: (s) => num(s.pbf) },
-    score: { label: 'InBody Score', color: '#f59e0b', getValue: (s) => num(s.score) },
-  };
-  const config = metricConfigs[metric];
-  const values = sortedScans.map(config.getValue).filter((v) => v > 0);
-  if (values.length < 2) return <div className="text-xs text-slate-400 text-center py-4">Not enough valid data.</div>;
-  const minVal = Math.min(...values) * 0.95;
-  const maxVal = Math.max(...values) * 1.05;
-  const range = maxVal - minVal || 1;
-  const width = 700, height = 160, padding = 30;
-  const points = sortedScans.map((s, idx) => {
-    const v = config.getValue(s);
-    const x = padding + (idx / (sortedScans.length - 1)) * (width - padding * 2);
-    const y = height - padding - ((v - minVal) / range) * (height - padding * 2);
-    return { x, y, val: v };
-  });
-  const pathD = points.reduce((acc, p, idx) => (idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`), '');
-  const areaD = `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
-  const showLabels = sortedScans.length <= 20;
-  return (
-    <div className="space-y-4">
-      <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs w-fit">
-        {Object.keys(metricConfigs).map((key) => (
-          <button key={key} onClick={() => setMetric(key)} className={`px-3 py-1.5 font-bold rounded-lg transition-all ${metric === key ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>{metricConfigs[key].label}</button>
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-3 text-xs">
-        <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
-          <span className="text-[10px] text-slate-500 uppercase font-bold block">Weight Change</span>
-          <span className={`text-base font-black ${Number(weightDiff) <= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>{Number(weightDiff) > 0 ? `+${weightDiff}` : weightDiff} lbs</span>
-        </div>
-        <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
-          <span className="text-[10px] text-slate-500 uppercase font-bold block">Muscle Change</span>
-          <span className={`text-base font-black ${Number(smmDiff) >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>{Number(smmDiff) > 0 ? `+${smmDiff}` : smmDiff} lbs</span>
-        </div>
-        <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
-          <span className="text-[10px] text-slate-500 uppercase font-bold block">Body Fat % Change</span>
-          <span className={`text-base font-black ${Number(pbfDiff) <= 0 ? 'text-emerald-400' : 'text-purple-400'}`}>{Number(pbfDiff) > 0 ? `+${pbfDiff}` : pbfDiff}%</span>
-        </div>
-      </div>
-      <div className="relative w-full overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto overflow-visible">
-          <defs><linearGradient id={`grad-${metric}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={config.color} stopOpacity="0.3" /><stop offset="100%" stopColor={config.color} stopOpacity="0.0" /></linearGradient></defs>
-          <path d={areaD} fill={`url(#grad-${metric})`} />
-          <path d={pathD} fill="none" stroke={config.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          {points.map((p, idx) => (
-            <g key={idx}>
-              <circle cx={p.x} cy={p.y} r={showLabels ? 4 : 2.5} fill="#0f172a" stroke={config.color} strokeWidth="2" />
-              {showLabels && <text x={p.x} y={p.y - 9} fill="#e2e8f0" fontSize="9" fontWeight="bold" textAnchor="middle">{p.val}</text>}
-            </g>
-          ))}
-        </svg>
-      </div>
-      {!showLabels && <p className="text-[10px] text-slate-500 text-center">Labels hidden (many scans).</p>}
-    </div>
-  );
-}
-
-function MeasurementBodyMap({ measurement, onClose }) {
-  if (!measurement) return null;
-
-  const v = (key) => {
-    const n = measurement[key];
-    return n != null && n !== '' ? String(n) : '—';
-  };
-
-  // value shown on body; full labels in the side list
-  const pins = [
-    { key: 'neck', label: 'Neck', x: 50, y: 11 },
-    { key: 'shoulder', label: 'Shoulder', x: 78, y: 18 },
-    { key: 'chest', label: 'Chest', x: 50, y: 26 },
-    { key: 'lBicep', label: 'L. Bicep', x: 18, y: 32 },
-    { key: 'rBicep', label: 'R. Bicep', x: 82, y: 32 },
-    { key: 'waist', label: 'Waist', x: 50, y: 40 },
-    { key: 'hips', label: 'Hips', x: 50, y: 50 },
-    { key: 'lThigh', label: 'L. Thigh', x: 34, y: 64 },
-    { key: 'rThigh', label: 'R. Thigh', x: 66, y: 64 },
-    { key: 'lCalf', label: 'L. Calf', x: 34, y: 82 },
-    { key: 'rCalf', label: 'R. Calf', x: 66, y: 82 },
-  ];
-
-  return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-5 shadow-2xl max-h-[92vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h3 className="text-lg font-bold text-white">Measurements</h3>
-            <p className="text-sm text-slate-300">{measurement.date}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-300 hover:text-white text-2xl leading-none px-2"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          {/* Body */}
-          <div className="relative mx-auto w-full max-w-[260px] aspect-[1/2.1] bg-slate-950 rounded-2xl border border-slate-800">
-            <svg
-              viewBox="0 0 100 210"
-              className="absolute inset-0 w-full h-full"
-              aria-hidden
-            >
-              <ellipse cx="50" cy="18" rx="11" ry="13" fill="#334155" />
-              <rect x="45" y="28" width="10" height="8" rx="2" fill="#334155" />
-              <path d="M32 36 L68 36 L72 95 L28 95 Z" fill="#334155" />
-              <path d="M32 38 L18 42 L14 78 L24 78 L30 55 Z" fill="#334155" />
-              <path d="M68 38 L82 42 L86 78 L76 78 L70 55 Z" fill="#334155" />
-              <path d="M28 95 L72 95 L68 120 L55 120 L50 100 L45 120 L32 120 Z" fill="#334155" />
-              <path d="M32 120 L44 120 L42 195 L30 195 Z" fill="#334155" />
-              <path d="M56 120 L68 120 L70 195 L58 195 Z" fill="#334155" />
-            </svg>
-
-            {pins.map((p) => (
-              <div
-                key={p.key}
-                className="absolute -translate-x-1/2 -translate-y-1/2"
-                style={{ left: `${p.x}%`, top: `${p.y}%` }}
-              >
-                <div className="min-w-[2.25rem] px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[11px] font-black text-center shadow-lg border border-blue-400/50">
-                  {v(p.key)}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Readable list */}
-          <div className="space-y-1.5">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-              All sites (inches)
-            </div>
-            {pins.map((p) => (
-              <div
-                key={p.key}
-                className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800"
-              >
-                <span className="text-sm font-semibold text-slate-200">{p.label}</span>
-                <span className="text-sm font-black text-blue-400 tabular-nums">
-                  {v(p.key)}
-                </span>
-              </div>
-            ))}
-            {measurement.notes ? (
-              <p className="text-sm text-slate-300 mt-3 pt-3 border-t border-slate-800">
-                {measurement.notes}
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-5 w-full py-2.5 text-sm font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-white"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MeasurementCompareModal({ a, b, onClose }) {
-  if (!a || !b) return null;
-
-  // older left, newer right by date
-  const [left, right] = a.date <= b.date ? [a, b] : [b, a];
-
-  const val = (m, key) => {
-    const n = m[key];
-    return n != null && n !== '' ? Number(n) : null;
-  };
-
-  const delta = (key) => {
-    const x = val(left, key);
-    const y = val(right, key);
-    if (x == null || y == null) return null;
-    return Math.round((y - x) * 100) / 100;
-  };
-
-  const fields = [
-    { key: 'neck', label: 'Neck' },
-    { key: 'shoulder', label: 'Shoulder' },
-    { key: 'rBicep', label: 'R. Bicep' },
-    { key: 'lBicep', label: 'L. Bicep' },
-    { key: 'chest', label: 'Chest' },
-    { key: 'waist', label: 'Waist' },
-    { key: 'hips', label: 'Hips' },
-    { key: 'rThigh', label: 'R. Thigh' },
-    { key: 'lThigh', label: 'L. Thigh' },
-    { key: 'rCalf', label: 'R. Calf' },
-    { key: 'lCalf', label: 'L. Calf' },
-  ];
-
-  return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-5 max-h-[92vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-white">Compare measurements</h3>
-          <button type="button" onClick={onClose} className="text-slate-300 hover:text-white text-2xl">
-            ×
-          </button>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 text-center text-xs font-bold text-slate-400 mb-2 px-1">
-          <div>{left.date}</div>
-          <div>Change</div>
-          <div>{right.date}</div>
-        </div>
-
-        <div className="space-y-1.5">
-          {fields.map((f) => {
-            const d = delta(f.key);
-            const x = val(left, f.key);
-            const y = val(right, f.key);
-            const dColor =
-              d == null ? 'text-slate-500' : d < 0 ? 'text-emerald-400' : d > 0 ? 'text-amber-400' : 'text-slate-300';
-            return (
-              <div
-                key={f.key}
-                className="grid grid-cols-3 gap-2 items-center px-3 py-2 rounded-xl bg-slate-950 border border-slate-800"
-              >
-                <div className="text-sm font-black text-white tabular-nums text-center">
-                  {x != null ? x : '—'}
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">{f.label}</div>
-                  <div className={`text-sm font-black tabular-nums ${dColor}`}>
-                    {d == null ? '—' : d > 0 ? `+${d}` : `${d}`}
-                  </div>
-                </div>
-                <div className="text-sm font-black text-white tabular-nums text-center">
-                  {y != null ? y : '—'}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <p className="text-[11px] text-slate-500 mt-3">
-          Negative change (green) = smaller measurement vs older date.
-        </p>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-4 w-full py-2.5 text-sm font-bold rounded-xl bg-slate-800 text-white"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
 
 export default function Clients({ focus, onFocusConsumed }) {
   const { currentUser, isOwner } = useAuth();
@@ -419,20 +42,13 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [clientListFilter, setClientListFilter] = useState('active');
   const [activeTab, setActiveTab] = useState('overview');
   const [allScans, setAllScans] = useState([]);
-  const [selectedScan, setSelectedScan] = useState(null);
-  const [isAdminUploadOpen, setIsAdminUploadOpen] = useState(false);
   const [isGhlLookupOpen, setIsGhlLookupOpen] = useState(false);
   const [ghlSearchQuery, setGhlSearchQuery] = useState('');
   const [ghlSearchResults, setGhlSearchResults] = useState([]);
   const [isSearchingGhl, setIsSearchingGhl] = useState(false);
   const [ghlData, setGhlData] = useState({ notes: [], appointments: [], messages: [] });
   const [loadingGhl, setLoadingGhl] = useState(false);
-  const [outgoingSms, setOutgoingSms] = useState('');
-  const [isSendingSms, setIsSendingSms] = useState(false);
-  const [compareScans, setCompareScans] = useState([]);
   const [clientBookings, setClientBookings] = useState([]);
-  const [isChartOpen, setIsChartOpen] = useState(true);
-  const [isCompareMode, setIsCompareMode] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [isFindingGhl, setIsFindingGhl] = useState(false);
@@ -441,46 +57,17 @@ export default function Clients({ focus, onFocusConsumed }) {
   const [habits, setHabits] = useState([]);
   const [clientHabits, setClientHabits] = useState([]);
   const [isHabitLibraryOpen, setIsHabitLibraryOpen] = useState(false);
-  const [isAssignHabitOpen, setIsAssignHabitOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
   const [habitForm, setHabitForm] = useState({ name: '', category: 'Nutrition', description: '' });
-  const [assignForm, setAssignForm] = useState({ habitId: '', weeksAssigned: 4, startDate: new Date().toISOString().split('T')[0] });
   const [showUnlinkedScans, setShowUnlinkedScans] = useState(false);
-  const messagesEndRef = useRef(null);
-  const [smsExpanded, setSmsExpanded] = useState(false);
-  const [smsFile, setSmsFile] = useState(null);
-  const [smsText, setSmsText] = useState('');
   const [payrollCoaches, setPayrollCoaches] = useState([]);
   const [clientMeasurements, setClientMeasurements] = useState([]);
-  const [measurementForm, setMeasurementForm] = useState(emptyMeasurementForm());
-  const [isMeasurementFormOpen, setIsMeasurementFormOpen] = useState(false);
-  const [savingMeasurement, setSavingMeasurement] = useState(false);
   const [clientPhotos, setClientPhotos] = useState([]);
-  const [photoLabel, setPhotoLabel] = useState('front');
-  const [photoDate, setPhotoDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [comparePhotos, setComparePhotos] = useState([]); // max 2
-  const [isPhotoCompareOpen, setIsPhotoCompareOpen] = useState(false);
-  const [photoFilter, setPhotoFilter] = useState('all'); // all | front | side | back | other
-  const [zoomedPhoto, setZoomedPhoto] = useState(null); // single photo lightbox
-  const [selectedMeasurement, setSelectedMeasurement] = useState(null);
-  const [compareMeasurements, setCompareMeasurements] = useState([]); // max 2
-  const [isMeasurementCompareOpen, setIsMeasurementCompareOpen] = useState(false);
-  const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [rooms, setRooms] = useState([]);
   const [appointmentTypes, setAppointmentTypes] = useState([]);
-  const [bookingForm, setBookingForm] = useState({
-    appointmentTypeId: '',
-    roomId: '',
-    date: new Date().toISOString().split('T')[0],
-    time: '10:00',
-    durationMinutes: 15,
-    notes: '',
-  });
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   const [clientSearchResults, setClientSearchResults] = useState([]);
   const [isClientSearching, setIsClientSearching] = useState(false);
-
 
   useEffect(() => {
     const isOwnerUser =
@@ -689,15 +276,8 @@ export default function Clients({ focus, onFocusConsumed }) {
   }, [selectedClient, currentUserRole, currentUser?.uid]);
 
   useEffect(() => {
-    if (activeTab === 'messages' && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [ghlData.messages, activeTab]);
-
-  useEffect(() => {
     if (!selectedClient?.id) {
       setClientPhotos([]);
-      setComparePhotos([]);
       return;
     }
     const q = query(
@@ -716,8 +296,6 @@ export default function Clients({ focus, onFocusConsumed }) {
     );
     return () => unsub();
   }, [selectedClient?.id]);
-
-
 
   const roleFilteredClients = (clients || []).filter((c) => {
     const isOwnerUser =
@@ -878,7 +456,6 @@ export default function Clients({ focus, onFocusConsumed }) {
     }
   };
 
-
   const handleFindGhlInfo = async () => {
     const q = (clientForm.phone || clientForm.email || clientForm.name || '').trim();
     if (!q) return alert('Enter a phone, email, or name first');
@@ -920,28 +497,7 @@ export default function Clients({ focus, onFocusConsumed }) {
     }
   };
 
-  const handleSaveMfpUsername = async () => {
-    if (!selectedClient?.id) return;
-    const username = (mfpConnectUsername || '').trim().replace(/^@/, '');
-    if (!username) {
-      alert('Enter a MyFitnessPal username');
-      return;
-    }
-    setMfpSaving(true);
-    try {
-      await updateDoc(doc(db, 'clients', selectedClient.id), {
-        mfpUsername: username,
-        updatedAt: new Date(),
-      });
-      setSelectedClient({ ...selectedClient, mfpUsername: username });
-      setMfpConnectOpen(false);
-      setMfpConnectUsername('');
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setMfpSaving(false);
-    }
-  };
+;
 
   const handleSaveClient = async () => {
     if (!clientForm.name.trim()) return alert('Name is required');
@@ -1041,38 +597,9 @@ export default function Clients({ focus, onFocusConsumed }) {
       if (selectedClient?.id === client.id) setSelectedClient({ ...selectedClient, status: next });
     } catch (err) { alert(err.message); }
   };
-  const handleDeleteScan = async (id) => {
-    if (!window.confirm('Delete this scan?')) return;
-    try {
-      await deleteDoc(doc(db, 'inbody_scans', id));
-      if (selectedScan?.id === id) setSelectedScan(null);
-      setCompareScans((p) => p.filter((s) => s.id !== id));
-    } catch (err) { alert(err.message); }
-  };
-  const toggleCompareScan = (scan) => {
-    setCompareScans((prev) => {
-      if (prev.find((s) => s.id === scan.id)) return prev.filter((s) => s.id !== scan.id);
-      if (prev.length >= 2) return [prev[1], scan];
-      return [...prev, scan];
-    });
-  };
-  const handleSendSms = async () => {
-    if (!outgoingSms.trim() || !selectedClient) return;
-    const ghlId = selectedClient.ghlContactId || selectedClient.ghlId || selectedClient.ghl || selectedClient.contactId;
-    if (!ghlId || ghlId === 'N/A' || String(ghlId).startsWith('dummy')) return alert('No valid GHL ID');
-    setIsSendingSms(true);
-    try {
-      const res = await fetch('https://us-central1-swarm-nutrition-app.cloudfunctions.net/sendGhlSms', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contactId: ghlId, message: outgoingSms }),
-      });
-      if (res.ok) {
-        setGhlData((p) => ({ ...p, messages: [{ body: outgoingSms, direction: 'outbound', dateAdded: new Date().toISOString() }, ...p.messages] }));
-        setOutgoingSms('');
-      }
-    } catch (err) { console.error(err); }
-    finally { setIsSendingSms(false); }
-  };
+;
+;
+;
 
   const openAddHabit = () => { setEditingHabit(null); setHabitForm({ name: '', category: 'Nutrition', description: '' }); setIsHabitLibraryOpen(true); };
   const openEditHabit = (h) => { setEditingHabit(h); setHabitForm({ name: h.name || '', category: h.category || 'Nutrition', description: h.description || '' }); setIsHabitLibraryOpen(true); };
@@ -1088,233 +615,28 @@ export default function Clients({ focus, onFocusConsumed }) {
     if (!window.confirm(`Delete "${h.name}"?`)) return;
     try { await deleteDoc(doc(db, 'habits', h.id)); } catch (err) { alert(err.message); }
   };
-  const openAssignHabit = () => {
-    setAssignForm({ habitId: habits[0]?.id || '', weeksAssigned: 4, startDate: new Date().toISOString().split('T')[0] });
-    setIsAssignHabitOpen(true);
-  };
-  const handleAssignHabit = async () => {
-    if (!assignForm.habitId || !selectedClient) return alert('Select a habit');
-    const habit = habits.find((h) => h.id === assignForm.habitId);
-    if (!habit) return;
-    if (clientHabits.some((ch) => ch.habitId === habit.id && ch.status === 'active')) return alert('Already assigned.');
-    try {
-      await addDoc(collection(db, 'client_habits'), {
-        clientId: selectedClient.id, habitId: habit.id, habitName: habit.name, category: habit.category || 'Nutrition',
-        startDate: assignForm.startDate, weeksAssigned: Number(assignForm.weeksAssigned) || 4, status: 'active', checkIns: {}, createdAt: new Date(),
-      });
-      setIsAssignHabitOpen(false);
-    } catch (err) { alert(err.message); }
-  };
+;
+;
 
-  const handleFatSecretSearch = async () => {
-    const q = fsQuery.trim();
-    if (!q) return;
-    setFsLoading(true);
-    setFsError('');
-    setFsResults([]);
-    try {
-      const res = await fetch(
-        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/fatsecretSearchFoods?q=${encodeURIComponent(q)}`
-      );
-      const json = await res.json();
-      if (!json.success) {
-        setFsError(json.error || json.data?.error?.message || 'Search failed');
-        return;
-      }
-      const raw = json.data?.foods?.food;
-      const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
-      setFsResults(list);
-      if (list.length === 0) setFsError('No foods found');
-    } catch (e) {
-      setFsError(e.message || 'Network error');
-    } finally {
-      setFsLoading(false);
-    }
-  };
+;
 
-  const handleRemoveClientHabit = async (ch) => {
-    if (!window.confirm(`Remove "${ch.habitName}"?`)) return;
-    try { await deleteDoc(doc(db, 'client_habits', ch.id)); } catch (err) { alert(err.message); }
-  };
+;
 
-  const handleSaveMeasurement = async () => {
-    if (!selectedClient?.id) return;
-    if (!measurementForm.date) {
-      alert('Please set a date');
-      return;
-    }
-    setSavingMeasurement(true);
-    try {
-      const data = {
-        date: measurementForm.date,
-        notes: measurementForm.notes || '',
-        createdAt: new Date(),
-      };
-      MEASUREMENT_FIELDS.forEach((f) => {
-        const n = parseFloat(measurementForm[f.key]);
-        data[f.key] = Number.isFinite(n) ? n : null;
-      });
-      await addDoc(collection(db, 'clients', selectedClient.id, 'measurements'), data);
-      setMeasurementForm(emptyMeasurementForm());
-      setIsMeasurementFormOpen(false);
-    } catch (err) {
-      alert('Failed to save measurements: ' + err.message);
-    } finally {
-      setSavingMeasurement(false);
-    }
-  };
+;
 
-  const handleDeleteMeasurement = async (id) => {
-    if (!selectedClient?.id || !id) return;
-    if (!window.confirm('Delete this measurement entry?')) return;
-    try {
-      await deleteDoc(doc(db, 'clients', selectedClient.id, 'measurements', id));
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
-  };
+;
 
-  const toggleCompareMeasurement = (m) => {
-    setCompareMeasurements((prev) => {
-      if (prev.find((x) => x.id === m.id)) return prev.filter((x) => x.id !== m.id);
-      if (prev.length >= 2) return [prev[1], m];
-      return [...prev, m];
-    });
-  };
+;
 
-  const handlePhotoUpload = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !selectedClient?.id) return;
-    if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file');
-      return;
-    }
-    setUploadingPhoto(true);
-    try {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const path = `client-photos/${selectedClient.id}/${Date.now()}_${photoLabel}_${safeName}`;
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      await addDoc(collection(db, 'clients', selectedClient.id, 'photos'), {
-        url,
-        storagePath: path,
-        label: photoLabel,
-        takenAt: photoDate || new Date().toISOString().split('T')[0],
-        createdAt: new Date(),
-      });
-    } catch (err) {
-      console.error(err);
-      alert('Upload failed: ' + err.message);
-    } finally {
-      setUploadingPhoto(false);
-    }
-  };
+;
 
-  const handleDeletePhoto = async (photo) => {
-    if (!selectedClient?.id || !photo?.id) return;
-    if (!window.confirm('Delete this photo?')) return;
-    try {
-      if (photo.storagePath) {
-        try {
-          await deleteObject(ref(storage, photo.storagePath));
-        } catch (e) {
-          console.warn('Storage delete', e);
-        }
-      }
-      await deleteDoc(doc(db, 'clients', selectedClient.id, 'photos', photo.id));
-      setComparePhotos((prev) => prev.filter((p) => p.id !== photo.id));
-    } catch (err) {
-      alert('Delete failed: ' + err.message);
-    }
-  };
+;
 
-  const toggleComparePhoto = (photo) => {
-    setComparePhotos((prev) => {
-      if (prev.find((p) => p.id === photo.id)) {
-        return prev.filter((p) => p.id !== photo.id);
-      }
-      if (prev.length >= 2) {
-        return [prev[1], photo];
-      }
-      return [...prev, photo];
-    });
-  };
+;
 
-  const handleSaveClientBooking = async () => {
-    if (!selectedClient) return;
-    const typeObj = appointmentTypes.find((t) => t.id === bookingForm.appointmentTypeId);
-    const roomObj = rooms.find((r) => r.id === bookingForm.roomId);
-
-    await addDoc(collection(db, 'bookings'), {
-      clientId: selectedClient.id,
-      clientName: selectedClient.name || '',
-      ghlContactId: selectedClient.ghlContactId || '',
-      appointmentTypeId: bookingForm.appointmentTypeId,
-      appointmentTypeName: typeObj?.name || '',
-      roomId: bookingForm.roomId,
-      roomName: roomObj?.name || '',
-      date: bookingForm.date,
-      time: bookingForm.time,
-      durationMinutes: Number(bookingForm.durationMinutes) || 15,
-      notes: bookingForm.notes || '',
-      coach: selectedClient.coach || '',
-      bookedByUid: currentUser?.uid || '',
-      bookedByName: currentUser?.displayName || currentUser?.email || '',
-      bookedByEmail: currentUser?.email || '',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    setIsBookingOpen(false);
-  };
+;
 
   const currentGhlId = selectedClient?.ghlContactId || selectedClient?.ghlId || selectedClient?.ghl || selectedClient?.contactId || 'N/A';
-
-  const filteredPhotos =
-    photoFilter === 'all'
-      ? clientPhotos
-      : clientPhotos.filter((p) => (p.label || 'other') === photoFilter);
-
-  const photosByDate = filteredPhotos.reduce((acc, photo) => {
-    const d = photo.takenAt || 'Unknown';
-    if (!acc[d]) acc[d] = [];
-    acc[d].push(photo);
-    return acc;
-  }, {});
-
-  const photoDateKeys = Object.keys(photosByDate).sort((a, b) => (a < b ? 1 : -1));
-
-  const latestScan = clientScans[0] || null;
-  const prevScan = clientScans[1] || null;
-  const nextAppt = [...clientBookings]
-    .filter((b) => {
-      const t = new Date(`${b.date}T${b.time || '00:00'}`);
-      return t >= new Date();
-    })
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)))[0];
-  const latestMeasurement = clientMeasurements[0] || null;
-  const latestPhoto = clientPhotos[0] || null;
-  const lastMessage = (() => {
-    const msgs = Array.isArray(ghlData.messages) ? ghlData.messages : [];
-    if (!msgs.length) return null;
-    // Prefer newest by date if present
-    const sorted = [...msgs].sort((a, b) => {
-      const ta = new Date(a.dateAdded || a.createdAt || a.timestamp || a.date || 0).getTime();
-      const tb = new Date(b.dateAdded || b.createdAt || b.timestamp || b.date || 0).getTime();
-      return tb - ta; // newest first
-    });
-    return sorted[0];
-  })();
-
-  const activeHabitsList = clientHabits.filter(
-    (h) => (h.status || 'active') === 'active'
-  );
-
-  const activeHabitsCount = (clientHabits || []).filter(
-    (h) => (h.status || 'active') === 'active'
-  ).length;
 
   return (
     <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
@@ -1459,7 +781,6 @@ export default function Clients({ focus, onFocusConsumed }) {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
 
-
               {activeTab === 'inbody' && selectedClient && (
                 <ClientInBody
                   selectedClient={selectedClient}
@@ -1536,7 +857,6 @@ export default function Clients({ focus, onFocusConsumed }) {
                 />
               )}
 
-
               {activeTab === 'payments' && (isOwner || currentUserRole === 'Owner') && selectedClient && (
                 <ClientPayrollPanel
                   client={selectedClient}
@@ -1550,107 +870,6 @@ export default function Clients({ focus, onFocusConsumed }) {
         )}
 
       </main>
-
-      {isBookingOpen && selectedClient && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white">Add booking</h3>
-              <button
-                type="button"
-                onClick={() => setIsBookingOpen(false)}
-                className="text-slate-400 hover:text-white text-xl"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="text-sm text-slate-300">
-              Member:{' '}
-              <span className="font-bold text-white">{selectedClient.name}</span>
-            </div>
-
-            <div>
-              <label className="text-xs text-slate-400 font-medium">Appointment type</label>
-              <select
-                value={bookingForm.appointmentTypeId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  const t = appointmentTypes.find((x) => x.id === id);
-                  setBookingForm((prev) => ({
-                    ...prev,
-                    appointmentTypeId: id,
-                    durationMinutes: t?.durationMinutes || prev.durationMinutes,
-                  }));
-                }}
-                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
-              >
-                <option value="">Select type</option>
-                {appointmentTypes.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.durationMinutes} min)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs text-slate-400 font-medium">Room</label>
-              <select
-                value={bookingForm.roomId}
-                onChange={(e) => setBookingForm((prev) => ({ ...prev, roomId: e.target.value }))}
-                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
-              >
-                <option value="">Select room</option>
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Date</label>
-                <input
-                  type="date"
-                  value={bookingForm.date}
-                  onChange={(e) => setBookingForm((prev) => ({ ...prev, date: e.target.value }))}
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 font-medium">Time</label>
-                <input
-                  type="time"
-                  value={bookingForm.time}
-                  onChange={(e) => setBookingForm((prev) => ({ ...prev, time: e.target.value }))}
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-slate-400 font-medium">Notes</label>
-              <textarea
-                value={bookingForm.notes}
-                onChange={(e) => setBookingForm((prev) => ({ ...prev, notes: e.target.value }))}
-                className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
-                rows={2}
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSaveClientBooking}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl"
-            >
-              Create booking
-            </button>
-          </div>
-        </div>
-      )}
 
       {isClientModalOpen && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
@@ -2047,47 +1266,6 @@ export default function Clients({ focus, onFocusConsumed }) {
         </div>
       )}
 
-      {isAssignHabitOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white">Assign Habit to {selectedClient?.name}</h3>
-              <button onClick={() => setIsAssignHabitOpen(false)} className="text-slate-400 hover:text-white text-xl">×</button>
-            </div>
-            {habits.length === 0 ? (
-              <div className="text-sm text-slate-400 text-center py-6">No habits yet. <button onClick={() => { setIsAssignHabitOpen(false); openAddHabit(); }} className="text-blue-400 underline">Create one</button></div>
-            ) : (
-              <>
-                <select value={assignForm.habitId} onChange={(e) => setAssignForm({ ...assignForm, habitId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white">
-                  {habits.map((h) => <option key={h.id} value={h.id}>{h.name} ({h.category})</option>)}
-                </select>
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="date" value={assignForm.startDate} onChange={(e) => setAssignForm({ ...assignForm, startDate: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white" />
-                  <input type="number" min="1" max="52" value={assignForm.weeksAssigned} onChange={(e) => setAssignForm({ ...assignForm, weeksAssigned: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white" />
-                </div>
-                <button onClick={handleAssignHabit} className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl">Assign Habit</button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-      {selectedMeasurement && (
-        <MeasurementBodyMap
-          measurement={selectedMeasurement}
-          onClose={() => setSelectedMeasurement(null)}
-        />
-      )}
-
-
-      {isMeasurementCompareOpen && compareMeasurements.length === 2 && (
-        <MeasurementCompareModal
-          a={compareMeasurements[0]}
-          b={compareMeasurements[1]}
-          onClose={() => setIsMeasurementCompareOpen(false)}
-        />
-      )}
-      {selectedScan && <InBodyResultSheetModal scan={selectedScan} onClose={() => setSelectedScan(null)} onDelete={handleDeleteScan} />}
-      {compareScans.length === 2 && <InBodyCompareModal scanA={compareScans[0]} scanB={compareScans[1]} onClose={() => { setCompareScans([]); setIsCompareMode(false); }} />}
     </div>
 
   );
