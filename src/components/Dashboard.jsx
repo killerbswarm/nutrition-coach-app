@@ -9,6 +9,7 @@ import Scans from './Scans';
 import PayrollShell from './PayrollShell';
 import { useTheme } from '../context/ThemeContext';
 
+
 const parseScanDate = (dateVal) => {
   if (!dateVal) return null;
   if (typeof dateVal === 'object' && dateVal.seconds) return new Date(dateVal.seconds * 1000);
@@ -46,7 +47,7 @@ const toTitleCase = (str) => {
 };
 
 export default function Dashboard() {
-  const { currentUser, userRole, isOwner, logout } = useAuth();
+  const { currentUser, userRole, isOwner, logout, changePassword } = useAuth();
   const currentUserRole = isOwner ? 'Owner' : (userRole === 'coach' ? 'Coach' : 'User');
 
   const [currentNavView, setCurrentNavView] = useState('dashboard');
@@ -61,6 +62,14 @@ export default function Dashboard() {
   const [profileName, setProfileName] = useState('');
   const { theme, toggleTheme } = useTheme();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  
+
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
   useEffect(() => {
     if (!currentUser?.uid) {
@@ -101,6 +110,36 @@ export default function Dashboard() {
     });
     return () => unsub();
   }, []);
+
+    const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwError('');
+    if (pwNew.length < 6) {
+      setPwError('New password must be at least 6 characters.');
+      return;
+    }
+    if (pwNew !== pwConfirm) {
+      setPwError('New passwords do not match.');
+      return;
+    }
+    setPwSaving(true);
+    try {
+      await changePassword(pwCurrent, pwNew);
+      setPwOpen(false);
+      setPwCurrent('');
+      setPwNew('');
+      setPwConfirm('');
+      alert('Password updated. Use it next time you sign in.');
+    } catch (err) {
+      const msg =
+        err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential'
+          ? 'Current password is incorrect.'
+          : err.message || 'Could not update password';
+      setPwError(msg);
+    } finally {
+      setPwSaving(false);
+    }
+  };
 
   const myClients = clients.filter((c) => {
     if ((c.status || 'active') !== 'active') return false;
@@ -215,6 +254,8 @@ export default function Dashboard() {
         setLoadingDashMessages(false);
       }
     };
+
+
 
     loadRecentMessages();
   }, [currentNavView, clients, currentUser, currentUserRole]);
@@ -394,6 +435,16 @@ export default function Dashboard() {
           >
             Log out
           </button>
+          <button
+  type="button"
+  onClick={() => {
+    setPwError('');
+    setPwOpen(true);
+  }}
+  className="w-full mt-1 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+>
+  Change password
+</button>
         </div>
       </aside>
 
@@ -582,6 +633,73 @@ export default function Dashboard() {
             )}
           </main>
         )}
+        {pwOpen && (
+  <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4 shadow-2xl">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-bold text-white">Change password</h3>
+        <button type="button" onClick={() => setPwOpen(false)} className="text-slate-400 hover:text-white text-xl">
+          ×
+        </button>
+      </div>
+      {pwError && (
+        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-2">
+          {pwError}
+        </div>
+      )}
+      <form onSubmit={handleChangePassword} className="space-y-3">
+        <div>
+          <label className="text-xs text-slate-400 font-medium">Current password</label>
+          <input
+            type="password"
+            required
+            value={pwCurrent}
+            onChange={(e) => setPwCurrent(e.target.value)}
+            className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 font-medium">New password</label>
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={pwNew}
+            onChange={(e) => setPwNew(e.target.value)}
+            className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 font-medium">Confirm new password</label>
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={pwConfirm}
+            onChange={(e) => setPwConfirm(e.target.value)}
+            className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setPwOpen(false)}
+            className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 text-slate-300"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={pwSaving}
+            className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white disabled:opacity-50"
+          >
+            {pwSaving ? 'Saving…' : 'Update'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
 
         {currentNavView === 'clients' && (
           <Clients focus={clientsFocus} onFocusConsumed={() => setClientsFocus(null)} />

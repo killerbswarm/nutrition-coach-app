@@ -1,6 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { auth, db } from "../firebase";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  sendPasswordResetEmail,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+} from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 const AuthContext = createContext();
@@ -38,12 +46,31 @@ export function AuthProvider({ children }) {
   const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
   const logout = () => signOut(auth);
 
+  /** Send password-reset email (Forgot password on Login). */
+  const resetPassword = (email) => sendPasswordResetEmail(auth, email);
+
+  /**
+   * Change password while logged in.
+   * Re-authenticates with current password, then sets the new one.
+   */
+  const changePassword = async (currentPassword, newPassword) => {
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      throw new Error("Not signed in");
+    }
+    const cred = EmailAuthProvider.credential(user.email, currentPassword);
+    await reauthenticateWithCredential(user, cred);
+    await updatePassword(user, newPassword);
+  };
+
   const value = {
     currentUser,
     userRole,
     isOwner: userRole === "owner",
     login,
     logout,
+    resetPassword,
+    changePassword,
   };
 
   return (
