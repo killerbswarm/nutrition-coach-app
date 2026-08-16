@@ -7,12 +7,17 @@ const { google } = require("googleapis");
 
 const GOOGLE_SA_KEY = defineSecret("GOOGLE_SA_KEY"); // use the secret name you set
 const CALENDAR_TIMEZONE = "America/New_York";
+const crypto = require("crypto");
 
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
 
+const FATSECRET_CLIENT_ID = defineSecret("FATSECRET_CLIENT_ID");
+const FATSECRET_CLIENT_SECRET = defineSecret("FATSECRET_CLIENT_SECRET");
+const FATSECRET_CONSUMER_KEY = defineSecret("FATSECRET_CONSUMER_KEY");
+const FATSECRET_CONSUMER_SECRET = defineSecret("FATSECRET_CONSUMER_SECRET");
 // --- GHL & INBODY API CONFIGURATION ---
 const GHL_API_TOKEN = process.env.GHL_API_TOKEN || "pit-b6637265-a6ff-47cf-bcda-78df37fb3526";
 const GHL_API_VERSION = "2021-07-28";
@@ -20,6 +25,106 @@ const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || "tNtRSRKPPnHXZjLAo4zs";
 
 const INBODY_API_KEY = process.env.INBODY_API_KEY || "dGKyIYZEo88HN9IqnFTh+I2TsesRtGNE8bijk5kwLH0=";
 const INBODY_ACCOUNT = process.env.INBODY_ACCOUNT || "swarm";
+
+async function getFatSecretAccessToken() {
+  const id = FATSECRET_CLIENT_ID.value();
+  const secret = FATSECRET_CLIENT_SECRET.value();
+  const basic = Buffer.from(`${id}:${secret}`).toString("base64");
+
+  const res = await fetch("https://oauth.fatsecret.com/connect/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basic}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials&scope=basic",
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    throw new Error(
+      `FatSecret token failed: ${res.status} ${JSON.stringify(data)}`
+    );
+  }
+  return data.access_token;
+}
+
+function fatSecretDateInt(yyyyMmDd) {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  const utc = Date.UTC(y, m - 1, d);
+  return Math.floor(utc / 86400000);
+}
+
+function oauth1Sign({ method, url, params, consumerSecret, tokenSecret = "" }) {
+  const normalized = Object.keys(params)
+    .sort()
+    .map(
+      (k) =>
+        `${encodeURIComponent(k)}=${encodeURIComponent(String(params[k]))}`
+    )
+    .join("&");
+
+  const base = [
+    method.toUpperCase(),
+    encodeURIComponent(url),
+    encodeURIComponent(normalized),
+  ].join("&");
+
+  const key = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(
+    tokenSecret
+  )}`;
+
+  return crypto.createHmac("sha1", key).update(base).digest("base64");
+}
+
+function parseOAuthBody(text) {
+  const out = {};
+  String(text || "")
+    .split("&")
+    .forEach((pair) => {
+      const [k, v] = pair.split("=");
+      if (k) out[decodeURIComponent(k)] = decodeURIComponent(v || "");
+    });
+  return out;
+}
+
+async function fatSecretOAuth1Request({
+  methodParams,
+  token = "",
+  tokenSecret = "",
+}) {
+  const url = "https://platform.fatsecret.com/rest/server.api";
+  const consumerKey = FATSECRET_CONSUMER_KEY.value();
+  const consumerSecret = FATSECRET_CONSUMER_SECRET.value();
+
+  const oauth = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: crypto.randomBytes(16).toString("hex"),
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_version: "1.0",
+    ...(token ? { oauth_token: token } : {}),
+  };
+
+  const allParams = { ...methodParams, ...oauth };
+  oauth.oauth_signature = oauth1Sign({
+    method: "POST",
+    url,
+    params: allParams,
+    consumerSecret,
+    tokenSecret,
+  });
+
+  const body = new URLSearchParams({ ...methodParams, ...oauth }).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
 
 // Helper: Parse LookinBody YYYYMMDDHHmmss timestamp into ISO Date String
 const parseInBodyDate = (dateStr) => {
@@ -1179,3 +1284,406 @@ console.log(
     return res.status(500).json({ error: err.message });
   }
 });
+exports.fatsecretMyIp = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const r = await fetch("https://api.ipify.org?format=json");
+    const j = await r.json();
+    res.json({ ip: j.ip, note: "Add this IP to FatSecret IP Restrictions" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Test: GET ?q=chicken */
+exports.fatsecretSearchFoods = onRequest(
+  {
+    cors: true,
+    secrets: [FATSECRET_CLIENT_ID, FATSECRET_CLIENT_SECRET],
+  },
+  async (req, res) => {
+    try {
+      const q = String(req.query.q || req.body?.q || "chicken").trim();
+      const token = await getFatSecretAccessToken();
+
+      const params = new URLSearchParams({
+        method: "foods.search",
+        search_expression: q,
+        format: "json",
+      });
+
+      const apiRes = await fetch(
+        "https://platform.fatsecret.com/rest/server.api",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        }
+      );
+
+      const data = await apiRes.json();
+      res.status(apiRes.ok ? 200 : 400).json({
+        success: apiRes.ok,
+        status: apiRes.status,
+        data,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  }
+);
+
+/** POST { clientId } — create profile once, save tokens on client */
+exports.fatsecretEnsureProfile = onRequest(
+  {
+    cors: true,
+    secrets: [FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET],
+  },
+  async (req, res) => {
+    try {
+      const clientId = String(req.body?.clientId || req.query.clientId || "").trim();
+      if (!clientId) {
+        return res.status(400).json({ success: false, error: "clientId required" });
+      }
+
+      const ref = admin.firestore().collection("clients").doc(clientId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: "client not found" });
+      }
+
+      const c = snap.data() || {};
+      if (c.fatsecretAuthToken && c.fatsecretAuthSecret) {
+        return res.json({
+          success: true,
+          alreadyLinked: true,
+          clientId,
+        });
+      }
+
+      const { ok, status, data } = await fatSecretOAuth1Request({
+        methodParams: {
+          method: "profile.create",
+          user_id: clientId,
+          format: "json",
+        },
+      });
+
+      // Response shapes vary; handle common forms
+      const token =
+        data?.profile?.auth_token ||
+        data?.auth_token ||
+        data?.profile_auth_token;
+      const secret =
+        data?.profile?.auth_secret ||
+        data?.auth_secret ||
+        data?.profile_auth_secret;
+
+      if (!ok || !token || !secret) {
+        console.error("profile.create", status, data);
+        return res.status(400).json({
+          success: false,
+          error: "profile.create failed",
+          detail: data,
+        });
+      }
+
+      await ref.set(
+        {
+          fatsecretAuthToken: token,
+          fatsecretAuthSecret: secret,
+          fatsecretUserId: clientId,
+          fatsecretLinkedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      return res.json({ success: true, alreadyLinked: false, clientId });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  }
+);
+
+/** GET/POST clientId + date=YYYY-MM-DD */
+exports.fatsecretGetDiary = onRequest(
+  {
+    cors: true,
+    secrets: [FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET],
+  },
+  async (req, res) => {
+    try {
+      const clientId = String(req.body?.clientId || req.query.clientId || "").trim();
+      const dateStr =
+        String(req.body?.date || req.query.date || "").trim() ||
+        new Date().toISOString().slice(0, 10);
+
+      if (!clientId) {
+        return res.status(400).json({ success: false, error: "clientId required" });
+      }
+
+      const snap = await admin.firestore().collection("clients").doc(clientId).get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: "client not found" });
+      }
+      const c = snap.data() || {};
+      if (!c.fatsecretAuthToken || !c.fatsecretAuthSecret) {
+        return res.status(400).json({
+          success: false,
+          error: "not_linked",
+          message: "Create FatSecret profile first",
+        });
+      }
+
+      const dateInt = fatSecretDateInt(dateStr);
+      const { ok, status, data } = await fatSecretOAuth1Request({
+        methodParams: {
+          method: "food_entries.get.v2",
+          date: String(dateInt),
+          format: "json",
+        },
+        token: c.fatsecretAuthToken,
+        tokenSecret: c.fatsecretAuthSecret,
+      });
+
+      if (!ok) {
+        return res.status(400).json({ success: false, status, data });
+      }
+
+      const raw = data?.food_entries?.food_entry;
+      const entries = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+      let calories = 0;
+      let protein = 0;
+      let carbs = 0;
+      let fat = 0;
+      for (const e of entries) {
+        calories += parseFloat(e.calories) || 0;
+        protein += parseFloat(e.protein) || 0;
+        carbs += parseFloat(e.carbohydrate) || 0;
+        fat += parseFloat(e.fat) || 0;
+      }
+
+      return res.json({
+        success: true,
+        date: dateStr,
+        dateInt,
+        entries,
+        totals: {
+          calories: Math.round(calories),
+          protein: Math.round(protein * 10) / 10,
+          carbs: Math.round(carbs * 10) / 10,
+          fat: Math.round(fat * 10) / 10,
+        },
+      });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  }
+);
+
+/**
+ * GET/POST ?clientId=...
+ * Returns authorizeUrl. User logs into FatSecret, allows app,
+ * then gets a PIN/verifier (oob). Finish connect is a separate step.
+ */
+exports.fatsecretStartConnect = onRequest(
+  {
+    cors: true,
+    secrets: [FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET],
+  },
+  async (req, res) => {
+    try {
+      const clientId = String(
+        req.query.clientId || req.body?.clientId || ""
+      ).trim();
+      if (!clientId) {
+        return res.status(400).json({ success: false, error: "clientId required" });
+      }
+
+      const db = admin.firestore();
+      const ref = db.collection("clients").doc(clientId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: "client not found" });
+      }
+
+      const url = "https://authentication.fatsecret.com/oauth/request_token";
+      const consumerKey = FATSECRET_CONSUMER_KEY.value();
+      const consumerSecret = FATSECRET_CONSUMER_SECRET.value();
+
+      const oauth = {
+        oauth_consumer_key: consumerKey,
+        oauth_nonce: crypto.randomBytes(16).toString("hex"),
+        oauth_signature_method: "HMAC-SHA1",
+        oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+        oauth_version: "1.0",
+        oauth_callback: "oob",
+      };
+
+      oauth.oauth_signature = oauth1Sign({
+        method: "POST",
+        url,
+        params: oauth,
+        consumerSecret,
+        tokenSecret: "",
+      });
+
+      const body = new URLSearchParams(oauth).toString();
+      const tokenRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+
+      const rawText = await tokenRes.text();
+      const parsed = parseOAuthBody(rawText);
+
+      if (!tokenRes.ok || !parsed.oauth_token || !parsed.oauth_token_secret) {
+        console.error("request_token failed", tokenRes.status, rawText);
+        return res.status(400).json({
+          success: false,
+          error: "request_token failed",
+          status: tokenRes.status,
+          detail: rawText.slice(0, 500),
+        });
+      }
+
+      await ref.set(
+        {
+          fatsecretOauthPending: {
+            token: parsed.oauth_token,
+            secret: parsed.oauth_token_secret,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        },
+        { merge: true }
+      );
+
+      const authorizeUrl =
+        "https://authentication.fatsecret.com/oauth/authorize?oauth_token=" +
+        encodeURIComponent(parsed.oauth_token);
+
+      return res.json({
+        success: true,
+        clientId,
+        authorizeUrl,
+        next: "Open authorizeUrl, log in as the client, Allow, then copy the PIN/verifier into fatsecretFinishConnect",
+      });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  }
+);
+
+/**
+ * GET/POST ?clientId=...&verifier=9672058
+ * Exchanges oob PIN for access tokens → saves on client
+ */
+exports.fatsecretFinishConnect = onRequest(
+  {
+    cors: true,
+    secrets: [FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET],
+  },
+  async (req, res) => {
+    try {
+      const clientId = String(
+        req.query.clientId || req.body?.clientId || ""
+      ).trim();
+      const verifier = String(
+        req.query.verifier || req.body?.verifier || ""
+      ).trim();
+
+      if (!clientId || !verifier) {
+        return res.status(400).json({
+          success: false,
+          error: "clientId and verifier required",
+        });
+      }
+
+      const db = admin.firestore();
+      const ref = db.collection("clients").doc(clientId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ success: false, error: "client not found" });
+      }
+
+      const pending = snap.data()?.fatsecretOauthPending;
+      if (!pending?.token || !pending?.secret) {
+        return res.status(400).json({
+          success: false,
+          error: "no_pending",
+          message: "Run fatsecretStartConnect first for this client",
+        });
+      }
+
+      const url = "https://authentication.fatsecret.com/oauth/access_token";
+      const consumerKey = FATSECRET_CONSUMER_KEY.value();
+      const consumerSecret = FATSECRET_CONSUMER_SECRET.value();
+
+      const oauth = {
+        oauth_consumer_key: consumerKey,
+        oauth_nonce: crypto.randomBytes(16).toString("hex"),
+        oauth_signature_method: "HMAC-SHA1",
+        oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+        oauth_version: "1.0",
+        oauth_token: pending.token,
+        oauth_verifier: verifier,
+      };
+
+      oauth.oauth_signature = oauth1Sign({
+        method: "POST",
+        url,
+        params: oauth,
+        consumerSecret,
+        tokenSecret: pending.secret,
+      });
+
+      const body = new URLSearchParams(oauth).toString();
+      const tokenRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+
+      const rawText = await tokenRes.text();
+      const parsed = parseOAuthBody(rawText);
+
+      if (!tokenRes.ok || !parsed.oauth_token || !parsed.oauth_token_secret) {
+        console.error("access_token failed", tokenRes.status, rawText);
+        return res.status(400).json({
+          success: false,
+          error: "access_token failed",
+          status: tokenRes.status,
+          detail: rawText.slice(0, 500),
+        });
+      }
+
+      await ref.set(
+        {
+          fatsecretAuthToken: parsed.oauth_token,
+          fatsecretAuthSecret: parsed.oauth_token_secret,
+          fatsecretConnectedAt: admin.firestore.FieldValue.serverTimestamp(),
+          fatsecretUsername: snap.data()?.fatsecretUsername || "",
+          fatsecretOauthPending: admin.firestore.FieldValue.delete(),
+        },
+        { merge: true }
+      );
+
+      return res.json({
+        success: true,
+        clientId,
+        message: "FatSecret account connected. Load diary next.",
+      });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  }
+);
