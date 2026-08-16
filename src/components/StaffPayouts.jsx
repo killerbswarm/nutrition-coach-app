@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, onSnapshot as onDocSnapshot } from 'firebase/firestore';
 import { doc as fsDoc } from 'firebase/firestore';
 import { resolveClient, displayClientName, normName } from '../utils/resolveClient';
+import { getPayrollAmount, isMixedRetailPackage } from '../utils/payrollAmounts';
 
 const DEFAULT_CONFIG = { payNumerator: 4, payDenominator: 9 };
 
@@ -155,7 +156,7 @@ export default function StaffPayouts({ selectedCoachName, onClose }) {
   let lifetimeTotal = 0;
 
   coachTxs.forEach((tx) => {
-    const amt = Number(tx.amount) || 0;
+    const amt = getPayrollAmount(tx);
     const isStaff = tx.isStaff || (roster[tx.client] && roster[tx.client].isStaff);
     const pay = calculateCoachPay(amt, tx.coach || selectedCoach, isStaff);
     lifetimeTotal += pay;
@@ -250,7 +251,7 @@ export default function StaffPayouts({ selectedCoachName, onClose }) {
                   </tr>
                 ) : (
                   [...coachTxs].reverse().map((tx) => {
-                    const amt = Number(tx.amount) || 0;
+                    const amt = getPayrollAmount(tx);
                     const isStaff =
                       tx.isStaff || (roster[tx.client] && roster[tx.client].isStaff);
                     const pay = calculateCoachPay(amt, tx.coach || selectedCoach, isStaff);
@@ -261,7 +262,10 @@ export default function StaffPayouts({ selectedCoachName, onClose }) {
                           {displayClientName(tx.client, clients)}
                         </td>
                         <td className="p-2.5 text-slate-400">
-                          {tx.package || 'Standard'}
+                          <span>{tx.package || 'Standard'}</span>
+{isMixedRetailPackage(tx) && (
+  <span className="text-[10px] text-amber-400">Mixed cart — check payroll $</span>
+)}
                           {isStaff && (
                             <span className="ml-1 bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded text-[10px]">
                               Staff

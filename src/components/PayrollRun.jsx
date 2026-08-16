@@ -11,6 +11,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { PlusCircle, Clock, CheckCircle2, Trash2, Edit } from 'lucide-react';
+import { getPayrollAmount, isMixedRetailPackage } from '../utils/payrollAmounts';
 
 const DEFAULT_CONFIG = { payNumerator: 4, payDenominator: 9, lookbackMonths: 18 };
 
@@ -166,7 +167,10 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
     if (newAmtStr !== null && newAmtStr.trim() !== '') {
       const newAmt = parseFloat(newAmtStr);
       if (!isNaN(newAmt) && newAmt >= 0) {
-        await updateDoc(doc(db, 'transactions', id), { amount: newAmt });
+        await updateDoc(doc(db, 'transactions', id), {
+  amount: newAmt,        // keeps UI simple
+  payrollAmount: newAmt, // preferred by getPayrollAmount()
+});
       }
     }
   };
@@ -211,7 +215,7 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
   });
 
   filteredTxs.forEach((tx) => {
-    const amt = Number(tx.amount) || 0;
+    const amt = getPayrollAmount(tx);
     const cPay = calculateCoachPay(amt, tx.coach, tx.isStaff);
     const coachObj = coaches.find(
       (c) => (c.name || '').trim().toLowerCase() === (tx.coach || '').trim().toLowerCase()
@@ -238,7 +242,7 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
   const clientSeqTracker = {};
   chronological.forEach((tx) => {
     const name = tx.client || 'Unknown';
-    const amt = Number(tx.amount) || 0;
+    const amt = getPayrollAmount(tx);
     if (!clientSeqTracker[name]) clientSeqTracker[name] = { count149: 0 };
     if (amt >= 140) clientSeqTracker[name].count149 += 1;
     tx._seq149 = clientSeqTracker[name].count149;
@@ -487,7 +491,7 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
                   </tr>
                 ) : (
                   filteredTxs.map((tx) => {
-                    const amt = Number(tx.amount) || 0;
+                    const amt = getPayrollAmount(tx);
                     const cPay = calculateCoachPay(amt, tx.coach, tx.isStaff);
                     const coachObj = coaches.find(
                       (c) =>
@@ -538,6 +542,9 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
                         <td className="p-3 text-slate-400 text-xs">
                           <div className="flex flex-wrap gap-1 items-center">
                             <span>{tx.package || 'Standard'}</span>
+{isMixedRetailPackage(tx) && (
+  <span className="text-[10px] text-amber-400">Mixed cart — check payroll $</span>
+)}
                             {cycleBadge}
                             {tx.isStaff && (
                               <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full">
@@ -555,7 +562,7 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
                           <div className="flex justify-center gap-2">
                             <button
                               type="button"
-                              onClick={() => editTransaction(tx.id, amt)}
+                              onClick={() => editTransaction(tx.id, getPayrollAmount(tx))}
                               className="text-amber-400 hover:text-amber-300"
                             >
                               <Edit size={14} />

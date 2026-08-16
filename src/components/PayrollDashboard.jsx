@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
+import { getPayrollAmount } from '../utils/payrollAmounts';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -91,7 +92,7 @@ export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
   const clientStats = {};
   transactions.forEach((t) => {
     const name = t.client || 'Unknown';
-    const amt = Number(t.amount) || 0;
+    const amt = getPayrollAmount(t);
     if (!clientStats[name]) clientStats[name] = { count149: 0, count99: 0 };
     if (amt >= 140) clientStats[name].count149++;
     if (amt < 140 && amt > 0) clientStats[name].count99++;
@@ -118,7 +119,7 @@ export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
   });
 
   filteredTxs.forEach((tx) => {
-    const amt = Number(tx.amount) || 0;
+    const amt = getPayrollAmount(tx);
     const cPay = calculateCoachPay(amt, tx.coach, tx.isStaff);
     const coachObj = coaches.find(
       (c) => (c.name || '').trim().toLowerCase() === (tx.coach || '').trim().toLowerCase()
@@ -136,7 +137,7 @@ export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
     if (!t.date) return;
     const k = t.date.slice(0, 7);
     if (!monthlyGroups[k]) monthlyGroups[k] = { gross: 0, coachPay: 0, clients: new Set() };
-    const amt = Number(t.amount) || 0;
+    const amt = getPayrollAmount(t);
     const cPay = calculateCoachPay(amt, t.coach, t.isStaff);
     const coachObj = coaches.find(
       (c) => (c.name || '').trim().toLowerCase() === (t.coach || '').trim().toLowerCase()
