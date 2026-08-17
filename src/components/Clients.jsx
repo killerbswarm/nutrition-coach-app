@@ -781,10 +781,11 @@ export default function Clients({ focus, onFocusConsumed }) {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
 
-              {activeTab === 'inbody' && selectedClient && (
+                        {activeTab === 'inbody' && selectedClient && (
                 <ClientInBody
                   selectedClient={selectedClient}
                   clientScans={clientScans}
+                  canManage={isOwner || currentUserRole === 'Owner' || currentUserRole === 'owner'}
                 />
               )}
 

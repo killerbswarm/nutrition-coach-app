@@ -798,7 +798,6 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
     if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
     const payload = req.body;
-    const rawPhone = payload.Mobile || payload.phone || payload.UserPhone || payload.ID || payload.TelHP || payload.User_ID || payload.UserID || "";
     const digits = (p) => String(p || "").replace(/\D/g, "");
     const last10 = (p) => {
       const d = digits(p);
@@ -817,8 +816,10 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
     );
 
     let matchedClientId = null;
-    let matchedClientName = payload.Name || payload.UserName || "Member";
+    let matchedClientName = payload.Name || payload.UserName || "";
+    let matchedGhlId = "";
 
+    // 1) Match local clients by phone
     if (cleanPhone) {
       const clientsSnap = await db.collection("clients").get();
       const matched = clientsSnap.docs.find((d) => {
@@ -828,12 +829,54 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
       if (matched) {
         matchedClientId = matched.id;
         matchedClientName = matched.data().name || matchedClientName;
+        matchedGhlId = matched.data().ghlContactId || "";
       }
     }
 
+    // 2) If still no real name, look up GHL by phone
+    const needsName =
+      !matchedClientName ||
+      /^member/i.test(matchedClientName) ||
+      /^unknown/i.test(matchedClientName);
+
+    if (needsName && cleanPhone && process.env.GHL_API_TOKEN) {
+      try {
+        const ghlUrl =
+          `https://services.leadconnectorhq.com/contacts/?locationId=${GHL_LOCATION_ID}` +
+          `&limit=20&query=${encodeURIComponent(cleanPhone)}`;
+        const ghlRes = await fetch(ghlUrl, {
+          headers: {
+            Authorization: `Bearer ${process.env.GHL_API_TOKEN || GHL_API_TOKEN}`,
+            Version: GHL_API_VERSION,
+          },
+        });
+        const ghlData = await ghlRes.json();
+        const contacts = ghlData.contacts || [];
+        const hit =
+          contacts.find((c) => {
+            const p = last10(c.phone);
+            return p && (p === cleanPhone || cleanPhone.endsWith(p) || p.endsWith(cleanPhone));
+          }) || contacts[0];
+        if (hit) {
+          const full =
+            hit.contactName ||
+            `${hit.firstName || ""} ${hit.lastName || ""}`.trim() ||
+            hit.email ||
+            "";
+          if (full) matchedClientName = full;
+          matchedGhlId = hit.id || matchedGhlId;
+        }
+      } catch (e) {
+        console.error("GHL lookup on inbody webhook failed", e.message);
+      }
+    }
+
+    if (!matchedClientName) matchedClientName = "Member";
+
     const scanRecord = {
       clientId: matchedClientId,
-      clientName: payload.Name || payload.UserName || matchedClientName,
+      clientName: matchedClientName,
+      ghlContactId: matchedGhlId || null,
       phone: cleanPhone,
       scanDate: parseInBodyDate(findDateStr(payload)),
       weight: findMetric(payload, "Weight", "WT", "Weight_lbs", "WT_lbs"),
@@ -846,8 +889,13 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
       rawPayload: payload,
     };
     await db.collection("inbody_scans").add(scanRecord);
-    return res.status(200).json({ success: true, message: "InBody scan saved to database successfully", scan: scanRecord });
+    return res.status(200).json({
+      success: true,
+      message: "InBody scan saved",
+      scan: scanRecord,
+    });
   } catch (err) {
+    console.error("inbodyWebhook error", err);
     return res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 });

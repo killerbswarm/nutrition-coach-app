@@ -359,22 +359,19 @@ export default function Dashboard() {
             >
               <span>📅</span> Calendar
             </button>
-            {currentUserRole === 'Owner' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCurrentNavView('scans');
-                  setMobileNavOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-                  currentNavView === 'scans'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <span>📋</span> Scans
-              </button>
-            )}
+          <button
+  onClick={() => {
+    setCurrentNavView('scans');
+    setMobileNavOpen(false);
+  }}
+  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+    currentNavView === 'scans'
+      ? 'bg-blue-600 text-white shadow-md'
+      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+  }`}
+>
+  <span>📋</span> Scans
+</button>
             {currentUserRole === 'Owner' && (
               <button
                 type="button"
@@ -411,40 +408,51 @@ export default function Dashboard() {
           </nav>
         </div>
 
-        <div className="mt-auto pt-4 border-t border-slate-800 space-y-2">
+                <div className="mt-auto pt-3 border-t border-slate-800 space-y-2">
           <div className="min-w-0 px-1">
             <div className="text-sm font-bold text-white truncate">
               {profileName || currentUser?.displayName || 'User'}
-              <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-semibold">
                 {currentUserRole}
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 truncate">{currentUser?.email}</div>
+            <div className="text-[11px] text-slate-500 truncate mt-0.5">
+              {currentUser?.email}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-          >
-            {theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}
-          </button>
-          <button
-            type="button"
-            onClick={() => logout()}
-            className="w-full px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300"
-          >
-            Log out
-          </button>
-          <button
-  type="button"
-  onClick={() => {
-    setPwError('');
-    setPwOpen(true);
-  }}
-  className="w-full mt-1 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
->
-  Change password
-</button>
+
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              className="flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl text-[10px] font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/80"
+            >
+              <span className="text-sm leading-none">{theme === 'dark' ? '☀️' : '🌙'}</span>
+              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPwError('');
+                setPwOpen(true);
+              }}
+              title="Change password"
+              className="flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl text-[10px] font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/80"
+            >
+              <span className="text-sm leading-none">🔑</span>
+              <span>Password</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => logout()}
+              title="Log out"
+              className="flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl text-[10px] font-semibold bg-slate-800/80 hover:bg-red-500/20 text-slate-300 hover:text-red-300 border border-slate-700/80"
+            >
+              <span className="text-sm leading-none">↩</span>
+              <span>Log out</span>
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -707,9 +715,9 @@ export default function Dashboard() {
         {currentNavView === 'calendar' && (
           <Calendar clients={clients} ghlAppointments={[]} selectedClient={null} />
         )}
-        {currentNavView === 'scans' && currentUserRole === 'Owner' && (
-          <Scans focusScanId={scansFocusId} onFocusConsumed={() => setScansFocusId(null)} />
-        )}
+       {currentNavView === 'scans' && (
+  <Scans focusScanId={scansFocusId} onFocusConsumed={() => setScansFocusId(null)} />
+)}
         {currentNavView === 'staff' && currentUserRole === 'Owner' && (
           <main className="flex-1 overflow-y-auto bg-slate-950">
             <UserManagement />

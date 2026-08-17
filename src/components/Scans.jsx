@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   collection,
   onSnapshot,
@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
+import InBodyCompareModal from './InBodyCompareModal';
 import AdminInBodyUploadModal from './AdminInBodyUploadModal';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,38 +40,69 @@ const formatDate = (dateVal) => {
   const d = parseScanDate(dateVal);
   if (!d) return 'Unknown Date';
   return d.toLocaleDateString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
 };
 
 const toTitleCase = (str) => {
   if (!str) return '';
-  return String(str).toLowerCase().split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return String(str)
+    .toLowerCase()
+    .split(' ')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+};
+
+const normalizePhone = (p) => String(p || '').replace(/\D/g, '');
+const last10 = (p) => {
+  const d = normalizePhone(p);
+  return d.length >= 10 ? d.slice(-10) : d;
 };
 
 const PAGE_SIZE = 50;
 
+const isPlaceholderName = (name) => {
+  const n = String(name || '').trim().toLowerCase();
+  return !n || n === 'member' || n === 'unknown' || n === 'unknown client' || n.startsWith('member ');
+};
+
 export default function Scans({ focusScanId, onFocusConsumed }) {
+  const { currentUser, isOwner, userRole } = useAuth();
+  const currentUserRole = isOwner ? 'Owner' : userRole === 'coach' ? 'Coach' : 'User';
+  const canManage = isOwner || currentUserRole === 'Owner';
+
   const [scans, setScans] = useState([]);
+  const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [editingScan, setEditingScan] = useState(null);
   const [selectedScan, setSelectedScan] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
   const [editForm, setEditForm] = useState({
-    clientName: '', phone: '', weight: '', smm: '', pbf: '', score: '', scanDate: '',
+    clientName: '',
+    phone: '',
+    weight: '',
+    smm: '',
+    pbf: '',
+    score: '',
+    scanDate: '',
   });
-  const { isOwner, currentUserRole } = useAuth();
   const [isAdminUploadOpen, setIsAdminUploadOpen] = useState(false);
-  const [clients, setClients] = useState([]);
+  const [compareScans, setCompareScans] = useState([]); // max 2
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [resolvingId, setResolvingId] = useState(null);
 
   useEffect(() => {
-  const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
-    setClients(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  });
-  return () => unsub();
-}, []);
+    const unsub = onSnapshot(collection(db, 'clients'), (snap) => {
+      setClients(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const q = query(collection(db, 'inbody_scans'), orderBy('scanDate', 'desc'));
@@ -80,7 +112,9 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
     return () => unsub();
   }, []);
 
-  useEffect(() => { setPage(0); }, [search]);
+  useEffect(() => {
+    setPage(0);
+  }, [search]);
 
   useEffect(() => {
     if (!focusScanId || scans.length === 0) return;
@@ -89,7 +123,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
       setSearch('');
       setPage(Math.floor(idx / PAGE_SIZE));
       setHighlightedId(focusScanId);
-      setSelectedScan(scans[idx]); // auto-open View Sheet
+      setSelectedScan(scans[idx]);
       setTimeout(() => {
         const el = document.getElementById(`scan-row-${focusScanId}`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -100,14 +134,45 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
     return () => clearTimeout(t);
   }, [focusScanId, scans]);
 
-  const filtered = scans.filter((s) => {
+  // Resolve display name from linked client / local roster by phone
+  const enrichedScans = useMemo(() => {
+    return scans.map((s) => {
+      let displayName = s.clientName || s.name || s.memberName || 'Member';
+      let email = s.email || '';
+      let clientId = s.clientId || null;
+
+      if (s.clientId) {
+        const c = clients.find((x) => x.id === s.clientId);
+        if (c) {
+          displayName = c.name || displayName;
+          email = c.email || email;
+        }
+      } else if (s.phone) {
+        const sp = last10(s.phone);
+        const c = clients.find((x) => last10(x.phone) === sp && sp.length >= 7);
+        if (c) {
+          displayName = c.name || displayName;
+          email = c.email || email;
+          clientId = c.id;
+        }
+      }
+
+      return { ...s, displayName, email, resolvedClientId: clientId };
+    });
+  }, [scans, clients]);
+
+  // Everyone sees all scans; coaches remain view-only via canManage
+  const filtered = enrichedScans.filter((s) => {
     const term = search.toLowerCase().trim();
     if (!term) return true;
+    const phoneDigits = term.replace(/\D/g, '');
     return (
+      (s.displayName || '').toLowerCase().includes(term) ||
       (s.clientName || '').toLowerCase().includes(term) ||
       (s.name || '').toLowerCase().includes(term) ||
+      (s.email || '').toLowerCase().includes(term) ||
       (s.phone || '').includes(term) ||
-      (s.memberName || '').toLowerCase().includes(term)
+      (phoneDigits.length >= 3 && normalizePhone(s.phone).includes(phoneDigits))
     );
   });
 
@@ -115,31 +180,39 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
   const pageScans = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const handleDelete = async (id) => {
+    if (!canManage) return;
     if (!window.confirm('Delete this scan permanently?')) return;
     try {
       await deleteDoc(doc(db, 'inbody_scans', id));
+      setCompareScans((prev) => prev.filter((s) => s.id !== id));
       if (selectedScan?.id === id) setSelectedScan(null);
     } catch (err) {
-      alert('Delete failed: ' + err.message);
+      alert(err.message);
     }
   };
 
   const openEdit = (scan) => {
-    setEditingScan(scan);
+    if (!canManage) return;
     const d = parseScanDate(scan.scanDate);
+    let local = '';
+    if (d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
     setEditForm({
-      clientName: scan.clientName || scan.name || '',
+      clientName: scan.displayName || scan.clientName || scan.name || '',
       phone: scan.phone || '',
-      weight: scan.weight || '',
-      smm: scan.smm || '',
-      pbf: scan.pbf || '',
-      score: scan.score || '',
-      scanDate: d ? d.toISOString().slice(0, 16) : '',
+      weight: scan.weight ?? '',
+      smm: scan.smm ?? '',
+      pbf: scan.pbf ?? '',
+      score: scan.score ?? '',
+      scanDate: local,
     });
+    setEditingScan(scan);
   };
 
   const handleSaveEdit = async () => {
-    if (!editingScan) return;
+    if (!canManage || !editingScan) return;
     try {
       const payload = {
         clientName: editForm.clientName.trim(),
@@ -152,42 +225,186 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         updatedAt: new Date(),
       };
       if (editForm.scanDate) payload.scanDate = new Date(editForm.scanDate).toISOString();
+
+      // Link to client by phone if possible
+      const sp = last10(editForm.phone);
+      if (sp.length >= 7) {
+        const match = clients.find((c) => last10(c.phone) === sp);
+        if (match) {
+          payload.clientId = match.id;
+          if (!editForm.clientName.trim() || isPlaceholderName(editForm.clientName)) {
+            payload.clientName = match.name;
+            payload.name = match.name;
+          }
+        }
+      }
+
       await updateDoc(doc(db, 'inbody_scans', editingScan.id), payload);
       setEditingScan(null);
     } catch (err) {
       alert('Save failed: ' + err.message);
     }
   };
+
+  const toggleCompare = (scan) => {
+    setCompareScans((prev) => {
+      if (prev.find((p) => p.id === scan.id)) return prev.filter((p) => p.id !== scan.id);
+      if (prev.length >= 2) return [prev[1], scan];
+      return [...prev, scan];
+    });
+  };
+
+  /** Owner: resolve "Member" via GHL phone search + local clients */
+  const resolveNameFromGhl = async (scan) => {
+    if (!canManage) return;
+    const phone = last10(scan.phone);
+    if (phone.length < 7) {
+      alert('No phone on this scan to look up.');
+      return;
+    }
+    setResolvingId(scan.id);
+    try {
+      // 1) Local clients first
+      const local = clients.find((c) => last10(c.phone) === phone);
+      if (local) {
+        await updateDoc(doc(db, 'inbody_scans', scan.id), {
+          clientId: local.id,
+          clientName: local.name,
+          name: local.name,
+          updatedAt: new Date(),
+        });
+        return;
+      }
+
+      // 2) GHL search
+      const res = await fetch(
+        `https://us-central1-swarm-nutrition-app.cloudfunctions.net/searchGhlContacts?query=${encodeURIComponent(phone)}`
+      );
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.contacts) || data.contacts.length === 0) {
+        alert('No match found in members for this phone.');
+        return;
+      }
+      const match =
+        data.contacts.find((c) => {
+          const p = last10(c.phone);
+          return p && (p === phone || p.endsWith(phone) || phone.endsWith(p));
+        }) || data.contacts[0];
+
+      const name = toTitleCase(match.name || 'Member');
+      await updateDoc(doc(db, 'inbody_scans', scan.id), {
+        clientName: name,
+        name,
+        ghlContactId: match.id || '',
+        updatedAt: new Date(),
+      });
+    } catch (err) {
+      alert('Lookup failed: ' + err.message);
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
   return (
-    <main className="flex-1 overflow-y-auto bg-slate-950 p-6 space-y-4">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <main className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-6 space-y-4 min-w-0">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-2xl font-black text-white">All Scans</h2>
-          <p className="text-xs text-slate-400 mt-1">{scans.length} total scans in database</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {filtered.length} shown
+            {search ? ` (filtered)` : ''}
+            {` · ${scans.length} total in database`}
+            {!canManage && ' · view only'}
+          </p>
         </div>
-        {(isOwner || currentUserRole === 'Owner') && (
-  <button
-    type="button"
-    onClick={() => setIsAdminUploadOpen(true)}
-    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg"
-  >
-    Upload Master CSV
-  </button>
-)}
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name or phone..."
-          className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-64"
-        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setIsCompareMode((v) => !v);
+              if (isCompareMode) {
+                setCompareScans([]);
+                setShowCompareModal(false);
+              }
+            }}
+            className={`px-3 py-2 font-bold text-xs rounded-xl border ${
+              isCompareMode
+                ? 'bg-blue-600 text-white border-blue-500'
+                : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+          >
+            {isCompareMode ? 'Comparing…' : 'Compare'}
+          </button>
+          {isCompareMode && compareScans.length === 2 && (
+            <button
+              type="button"
+              onClick={() => setShowCompareModal(true)}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl"
+            >
+              Open comparison
+            </button>
+          )}
+          {isCompareMode && (
+            <button
+              type="button"
+              onClick={() => {
+                setCompareScans([]);
+                setShowCompareModal(false);
+                setIsCompareMode(false);
+              }}
+              className="px-3 py-2 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl"
+            >
+              {compareScans.length > 0 ? `Cancel compare (${compareScans.length})` : 'Cancel compare'}
+            </button>
+          )}
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => setIsAdminUploadOpen(true)}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-lg"
+            >
+              Upload Master CSV
+            </button>
+          )}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter name, email, or phone…"
+            className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-56 md:w-64"
+          />
+        </div>
       </div>
+
+      {isCompareMode && (
+        <div className="text-xs text-blue-200 bg-blue-500/10 border border-blue-500/30 rounded-xl px-3 py-2 flex flex-wrap items-center gap-2">
+          <span className="font-bold">Compare mode:</span>
+          <span>
+            {compareScans.length === 0 && 'Check 2 rows (same person works best), then Open comparison.'}
+            {compareScans.length === 1 &&
+              `Selected: ${compareScans[0].displayName || compareScans[0].clientName || 'Scan'} — select 1 more.`}
+            {compareScans.length === 2 &&
+              `${compareScans[0].displayName || compareScans[0].clientName || 'A'} vs ${compareScans[1].displayName || compareScans[1].clientName || 'B'}`}
+          </span>
+          {compareScans.length === 2 && (
+            <button
+              type="button"
+              onClick={() => setShowCompareModal(true)}
+              className="ml-auto px-3 py-1 bg-emerald-600 text-white font-bold rounded-lg"
+            >
+              Open comparison
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-slate-800 text-slate-500 uppercase text-[10px] tracking-wider">
+                <th className="text-left px-3 py-3 font-bold w-8"></th>
                 <th className="text-left px-4 py-3 font-bold">Date</th>
                 <th className="text-left px-4 py-3 font-bold">Name</th>
                 <th className="text-left px-4 py-3 font-bold">Phone</th>
@@ -198,51 +415,100 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
                 <th className="text-right px-4 py-3 font-bold">Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-800">
               {pageScans.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-500">No scans found</td>
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                    No scans match this filter.
+                  </td>
                 </tr>
               ) : (
-                pageScans.map((scan) => (
-                  <tr
-                    key={scan.id}
-                    id={`scan-row-${scan.id}`}
-                    className={`border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors ${
-                      highlightedId === scan.id ? 'bg-blue-600/20 ring-1 ring-blue-500/40' : ''
-                    }`}
-                  >
-                    <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{formatDate(scan.scanDate)}</td>
-                    <td className="px-4 py-3 font-semibold text-white">{toTitleCase(scan.clientName || scan.name || 'Unknown')}</td>
-                    <td className="px-4 py-3 text-slate-400 font-mono">{scan.phone || '—'}</td>
-                    <td className="px-4 py-3 text-right text-slate-200">{scan.weight > 0 ? scan.weight : '—'}</td>
-                    <td className="px-4 py-3 text-right text-blue-400">{scan.smm > 0 ? scan.smm : '—'}</td>
-                    <td className="px-4 py-3 text-right text-purple-400">{scan.pbf > 0 ? `${scan.pbf}%` : '—'}</td>
-                    <td className="px-4 py-3 text-right text-amber-400">{scan.score > 0 ? scan.score : '—'}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button
-                          onClick={() => setSelectedScan(scan)}
-                          className="px-2 py-1 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 font-bold"
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={() => openEdit(scan)}
-                          className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(scan.id)}
-                          className="px-2 py-1 rounded-lg text-red-400 hover:bg-red-500/10 font-bold"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                pageScans.map((scan) => {
+                  const selected = compareScans.some((c) => c.id === scan.id);
+                  const needsResolve =
+                    canManage && isPlaceholderName(scan.displayName || scan.clientName);
+                  return (
+                    <tr
+                      key={scan.id}
+                      id={`scan-row-${scan.id}`}
+                      className={`hover:bg-slate-800/40 ${
+                        highlightedId === scan.id ? 'bg-blue-500/10' : ''
+                      } ${selected ? 'bg-blue-600/10' : ''}`}
+                    >
+                      <td className="px-3 py-2.5">
+                        {isCompareMode ? (
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleCompare(scan)}
+                            title="Select for compare"
+                            className="w-4 h-4 accent-blue-500 cursor-pointer"
+                          />
+                        ) : (
+                          <span className="text-slate-700">·</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-300 whitespace-nowrap">
+                        {formatDate(scan.scanDate)}
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold text-white">
+                        {toTitleCase(scan.displayName || scan.clientName || 'Member')}
+                        {needsResolve && (
+                          <button
+                            type="button"
+                            onClick={() => resolveNameFromGhl(scan)}
+                            disabled={resolvingId === scan.id}
+                            className="ml-2 text-[10px] font-bold text-amber-400 hover:text-amber-300"
+                          >
+                            {resolvingId === scan.id ? 'Looking up…' : 'Find name'}
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-400">{scan.phone || '—'}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-100">
+                        {scan.weight > 0 ? scan.weight : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-blue-400">
+                        {scan.smm > 0 ? scan.smm : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-purple-400">
+                        {scan.pbf > 0 ? `${scan.pbf}%` : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-amber-400 font-bold">
+                        {scan.score > 0 ? scan.score : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex justify-end gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedScan(scan)}
+                            className="px-2 py-1 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 font-bold"
+                          >
+                            View
+                          </button>
+                          {canManage && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(scan)}
+                                className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(scan.id)}
+                                className="px-2 py-1 rounded-lg text-red-400 hover:bg-red-500/10 font-bold"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -250,13 +516,15 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
 
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-800">
           <div className="text-xs text-slate-500">
-            Showing {filtered.length === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+            Showing {filtered.length === 0 ? 0 : page * PAGE_SIZE + 1}–
+            {Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
           </div>
           <div className="flex gap-2 items-center">
             <button
+              type="button"
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 disabled:opacity-40 hover:bg-slate-700"
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 disabled:opacity-40"
             >
               ← Prev
             </button>
@@ -264,9 +532,10 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
               Page {page + 1} / {totalPages}
             </span>
             <button
+              type="button"
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 disabled:opacity-40 hover:bg-slate-700"
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 disabled:opacity-40"
             >
               Next →
             </button>
@@ -274,48 +543,101 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         </div>
       </div>
 
-      {editingScan && (
+      {editingScan && canManage && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-white">Edit Scan</h3>
-              <button onClick={() => setEditingScan(null)} className="text-slate-400 hover:text-white text-xl">×</button>
+              <button type="button" onClick={() => setEditingScan(null)} className="text-slate-400 hover:text-white text-xl">
+                ×
+              </button>
             </div>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-slate-400 font-medium">Name</label>
-                <input type="text" value={editForm.clientName} onChange={(e) => setEditForm({ ...editForm, clientName: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                <input
+                  type="text"
+                  value={editForm.clientName}
+                  onChange={(e) => setEditForm({ ...editForm, clientName: e.target.value })}
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Phone</label>
-                <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                <input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
               <div>
-                <label className="text-xs text-slate-400 font-medium">Scan Date</label>
-                <input type="datetime-local" value={editForm.scanDate} onChange={(e) => setEditForm({ ...editForm, scanDate: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                <label className="text-xs text-slate-400 font-medium">Scan date</label>
+                <input
+                  type="datetime-local"
+                  value={editForm.scanDate}
+                  onChange={(e) => setEditForm({ ...editForm, scanDate: e.target.value })}
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-400 font-medium">Weight</label>
-                  <input type="number" step="0.1" value={editForm.weight} onChange={(e) => setEditForm({ ...editForm, weight: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editForm.weight}
+                    onChange={(e) => setEditForm({ ...editForm, weight: e.target.value })}
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 font-medium">SMM</label>
-                  <input type="number" step="0.1" value={editForm.smm} onChange={(e) => setEditForm({ ...editForm, smm: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editForm.smm}
+                    onChange={(e) => setEditForm({ ...editForm, smm: e.target.value })}
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 font-medium">Body Fat %</label>
-                  <input type="number" step="0.1" value={editForm.pbf} onChange={(e) => setEditForm({ ...editForm, pbf: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editForm.pbf}
+                    onChange={(e) => setEditForm({ ...editForm, pbf: e.target.value })}
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 font-medium">Score</label>
-                  <input type="number" step="0.1" value={editForm.score} onChange={(e) => setEditForm({ ...editForm, score: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editForm.score}
+                    onChange={(e) => setEditForm({ ...editForm, score: e.target.value })}
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                  />
                 </div>
               </div>
             </div>
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setEditingScan(null)} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300">Cancel</button>
-              <button onClick={handleSaveEdit} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white">Save Changes</button>
+              <button
+                type="button"
+                onClick={() => setEditingScan(null)}
+                className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-800 text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white"
+              >
+                Save Changes
+              </button>
             </div>
           </div>
         </div>
@@ -325,15 +647,26 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         <InBodyResultSheetModal
           scan={selectedScan}
           onClose={() => setSelectedScan(null)}
-          onDelete={handleDelete}
+          onDelete={canManage ? handleDelete : undefined}
         />
       )}
-      <AdminInBodyUploadModal
-  isOpen={isAdminUploadOpen}
-  onClose={() => setIsAdminUploadOpen(false)}
-  clients={clients}
-  onComplete={() => {}}
-/>
+
+      {showCompareModal && compareScans.length === 2 && (
+        <InBodyCompareModal
+          scanA={compareScans[0]}
+          scanB={compareScans[1]}
+          onClose={() => setShowCompareModal(false)}
+        />
+      )}
+
+      {canManage && (
+        <AdminInBodyUploadModal
+          isOpen={isAdminUploadOpen}
+          onClose={() => setIsAdminUploadOpen(false)}
+          clients={clients}
+          onComplete={() => {}}
+        />
+      )}
     </main>
   );
 }

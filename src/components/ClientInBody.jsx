@@ -112,9 +112,20 @@ function InBodyProgressChart({ scans }) {
   );
 }
 
+const handleDeleteScan = async (id) => {
+  if (!canManage) return;
+  if (!window.confirm('Delete this scan?')) return;
+  try {
+    await deleteDoc(doc(db, 'inbody_scans', id));
+    if (selectedScan?.id === id) setSelectedScan(null);
+    setCompareScans((p) => p.filter((s) => s.id !== id));
+  } catch (err) {
+    alert(err.message);
+  }
+};
 
 
-export default function ClientInBody({ selectedClient, clientScans = [] }) {
+export default function ClientInBody({ selectedClient, clientScans = [], canManage = false }) {
   const [selectedScan, setSelectedScan] = useState(null);
   const [compareScans, setCompareScans] = useState([]);
   const [isChartOpen, setIsChartOpen] = useState(true);
@@ -177,11 +188,10 @@ export default function ClientInBody({ selectedClient, clientScans = [] }) {
               setIsCompareMode(!isCompareMode);
               if (isCompareMode) setCompareScans([]);
             }}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-              isCompareMode
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg ${isCompareMode
                 ? 'bg-slate-700 text-white'
                 : 'bg-blue-600/20 text-blue-400'
-            }`}
+              }`}
           >
             {isCompareMode ? 'Cancel Compare' : 'Compare'}
           </button>
@@ -198,11 +208,10 @@ export default function ClientInBody({ selectedClient, clientScans = [] }) {
               return (
                 <div
                   key={scan.id}
-                  className={`bg-slate-900 border p-4 rounded-2xl flex items-center gap-4 ${
-                    isSelected
+                  className={`bg-slate-900 border p-4 rounded-2xl flex items-center gap-4 ${isSelected
                       ? 'border-blue-500 ring-1 ring-blue-500/40'
                       : 'border-slate-800 hover:border-slate-700'
-                  }`}
+                    }`}
                 >
                   {isCompareMode && (
                     <input
@@ -244,20 +253,22 @@ export default function ClientInBody({ selectedClient, clientScans = [] }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedScan(scan)}
-                      className="px-3 py-1.5 text-xs font-bold rounded-xl bg-blue-600/20 text-blue-400 hover:bg-blue-600/30"
-                    >
-                      View Sheet
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteScan(scan.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-400"
-                    >
-                      🗑️
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedScan(scan)}
+                        className="px-3 py-1.5 text-xs font-bold rounded-xl bg-blue-600/20 text-blue-400 hover:bg-blue-600/30"
+                      >
+                        View Sheet
+                      </button>
+                      {canManage && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteScan(scan.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-400"
+                        >
+                          🗑️
+                        </button>
+                      )}
                   </div>
                 </div>
               );
@@ -270,7 +281,7 @@ export default function ClientInBody({ selectedClient, clientScans = [] }) {
         <InBodyResultSheetModal
           scan={selectedScan}
           onClose={() => setSelectedScan(null)}
-          onDelete={handleDeleteScan}
+          onDelete={canManage ? handleDeleteScan : undefined}
         />
       )}
       {compareScans.length === 2 && (
