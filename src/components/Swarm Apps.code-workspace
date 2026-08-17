@@ -11,6 +11,9 @@
 		},
 		{
 			"path": "../../../cleaningtracker"
+		},
+		{
+			"path": "../../../swarm-checkins"
 		}
 	],
 	"settings": {}
