@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-// Helper: Parse robust CSV line handling quotes & commas
 const parseCsvLine = (text) => {
   const result = [];
   let cur = '';
@@ -35,6 +34,41 @@ const cleanStr = (val) => {
   return String(val).trim();
 };
 
+const normalizeHeader = (h) =>
+  String(h || '')
+    .toLowerCase()
+    .replace(/^\d+\.\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+function pick(row, ...needles) {
+  const entries = Object.entries(row || {}).map(([k, v]) => [normalizeHeader(k), v, k]);
+  for (const needle of needles) {
+    const n = normalizeHeader(needle);
+    const exact = entries.find(([k]) => k === n);
+    if (exact) return exact[1];
+  }
+  for (const needle of needles) {
+    const n = normalizeHeader(needle);
+    const hit = entries.find(([k]) => k.includes(n));
+    if (hit) return hit[1];
+  }
+  return '';
+}
+
+function parseInBodyDate(raw) {
+  if (!raw) return new Date().toISOString();
+  const s = String(raw).trim();
+  const dotted = s.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (dotted) {
+    const iso = `${dotted[1]}-${dotted[2].padStart(2, '0')}-${dotted[3].padStart(2, '0')}T${(dotted[4] || '00').padStart(2, '0')}:${dotted[5] || '00'}:${dotted[6] || '00'}`;
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
+
 export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], onComplete }) {
   const [rawText, setRawText] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -46,11 +80,8 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      setRawText(evt.target.result);
-    };
+    reader.onload = (evt) => setRawText(evt.target.result);
     reader.readAsText(file);
   };
 
@@ -81,7 +112,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
       const totalRows = rows.length;
       setProgress({ current: 0, total: totalRows });
 
-      const chunkSize = 400; // Firestore 500 max batch limit
+      const chunkSize = 400;
       let processed = 0;
 
       for (let i = 0; i < totalRows; i += chunkSize) {
@@ -89,13 +120,12 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
         const batch = writeBatch(db);
 
         chunk.forEach((row) => {
-          const rawName = cleanStr(row['1. Name']);
-          const rawId = cleanStr(row['2. ID']);
-          const rawPhone = cleanStr(row['7. Mobile Number'] || row['8. Phone Number']);
+          const rawName = cleanStr(pick(row, 'name'));
+          const rawId = cleanStr(pick(row, 'id'));
+          const rawPhone = cleanStr(pick(row, 'mobile number', 'phone number'));
           const cleanPhone = rawPhone.replace(/\D/g, '');
-          const rawEmail = cleanStr(row['11. E-mail']);
+          const rawEmail = cleanStr(pick(row, 'e-mail', 'email'));
 
-          // Attempt to match scan with an existing local client document
           let matchedClientId = null;
           let matchedClientName = rawName;
 
@@ -103,7 +133,6 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
             const cPhone = String(c.phone || '').replace(/\D/g, '');
             const cEmail = String(c.email || '').toLowerCase();
             const cGhl = String(c.ghlContactId || c.ghlId || '');
-
             if (cleanPhone && cPhone && (cPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cPhone))) return true;
             if (rawEmail && cEmail && cEmail === rawEmail.toLowerCase()) return true;
             if (rawId && cGhl && cGhl === rawId) return true;
@@ -115,16 +144,6 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
             matchedClientName = matched.name || matchedClientName;
           }
 
-          // Parse Scan Date
-          const rawTestDate = row['14. Test Date / Time'] || row['12. Date of Registration'] || new Date().toISOString();
-          let parsedScanDate = new Date().toISOString();
-          try {
-            const d = new Date(rawTestDate);
-            if (!isNaN(d.getTime())) parsedScanDate = d.toISOString();
-          } catch (e) {
-            parsedScanDate = new Date().toISOString();
-          }
-
           const scanRef = doc(collection(db, 'inbody_scans'));
           batch.set(scanRef, {
             clientId: matchedClientId,
@@ -132,42 +151,42 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
             phone: cleanPhone,
             memberId: rawId,
             email: rawEmail,
-            gender: cleanStr(row['5. M/F']),
-            age: parseNum(row['6. Age']),
-            height: cleanStr(row['3. Height']),
-            dateOfBirth: cleanStr(row['4. Date of Birth']),
-            scanDate: parsedScanDate,
-            weight: parseNum(row['15. Weight']),
-            tbw: parseNum(row['16. TBW (Total Body Water)']),
-            icw: parseNum(row['17. ICW (Intracellular Water)']),
-            ecw: parseNum(row['18. ECW (Extracellular Water)']),
-            dlm: parseNum(row['19. DLM (Dry Lean Mass)']),
-            bfm: parseNum(row['20. BFM (Body Fat Mass)']),
-            lbm: parseNum(row['21. LBM (Lean Body Mass)']),
-            smm: parseNum(row['22. SMM (Skeletal Muscle Mass)']),
-            bmi: parseNum(row['23. BMI (Body Mass Index)']),
-            pbf: parseNum(row['24. PBF (Percent Body Fat)']),
-            score: parseNum(row['47. InBody Score']),
-            bfmControl: parseNum(row['48. BFM Control']),
-            lbmControl: parseNum(row['49. LBM Control']),
-            bmr: parseNum(row['50. BMR (Basal Metabolic Rate)']),
-            visceralFat: cleanStr(row['51. VFL (Visceral Fat Level)']),
-            smi: parseNum(row['75. SMI (Skeletal Muscle Index)']),
+            gender: cleanStr(pick(row, 'm/f')),
+            age: parseNum(pick(row, 'age')),
+            height: cleanStr(pick(row, 'height')),
+            dateOfBirth: cleanStr(pick(row, 'date of birth')),
+            scanDate: parseInBodyDate(pick(row, 'test date / time', 'date of registration')),
+            weight: parseNum(pick(row, 'weight')),
+            tbw: parseNum(pick(row, 'tbw (total body water)', 'total body water', 'tbw')),
+            icw: parseNum(pick(row, 'icw (intracellular water)', 'intracellular water', 'icw')),
+            ecw: parseNum(pick(row, 'ecw (extracellular water)', 'extracellular water', 'ecw')),
+            dlm: parseNum(pick(row, 'dlm (dry lean mass)', 'dry lean mass', 'dlm')),
+            bfm: parseNum(pick(row, 'bfm (body fat mass)', 'body fat mass')),
+            lbm: parseNum(pick(row, 'lbm (lean body mass)', 'lean body mass')),
+            smm: parseNum(pick(row, 'smm (skeletal muscle mass)', 'skeletal muscle mass', 'smm')),
+            bmi: parseNum(pick(row, 'bmi (body mass index)', 'body mass index', 'bmi')),
+            pbf: parseNum(pick(row, 'pbf (percent body fat)', 'percent body fat', 'pbf')),
+            score: parseNum(pick(row, 'inbody score')),
+            bfmControl: parseNum(pick(row, 'bfm control')),
+            lbmControl: parseNum(pick(row, 'lbm control')),
+            bmr: parseNum(pick(row, 'bmr (basal metabolic rate)', 'basal metabolic rate', 'bmr')),
+            visceralFat: cleanStr(pick(row, 'vfl (visceral fat level)', 'visceral fat level', 'vfl')),
+            smi: parseNum(pick(row, 'smi (skeletal muscle index)', 'skeletal muscle index', 'smi')),
             segmentalLean: {
-              rightArm: parseNum(row['25. LBM of Right Arm']),
-              leftArm: parseNum(row['27. LBM of Left Arm']),
-              trunk: parseNum(row['29. LBM of Trunk']),
-              rightLeg: parseNum(row['31. LBM of Right Leg']),
-              leftLeg: parseNum(row['33. LBM of Left Leg']),
+              rightArm: parseNum(pick(row, 'lbm of right arm')),
+              leftArm: parseNum(pick(row, 'lbm of left arm')),
+              trunk: parseNum(pick(row, 'lbm of trunk')),
+              rightLeg: parseNum(pick(row, 'lbm of right leg')),
+              leftLeg: parseNum(pick(row, 'lbm of left leg')),
             },
             segmentalFat: {
-              rightArm: parseNum(row['37. BFM of Right Arm']),
-              leftArm: parseNum(row['39. BFM of Left Arm']),
-              trunk: parseNum(row['41. BFM of Trunk']),
-              rightLeg: parseNum(row['43. BFM of Right Leg']),
-              leftLeg: parseNum(row['45. BFM of Left Leg']),
+              rightArm: parseNum(pick(row, 'bfm of right arm')),
+              leftArm: parseNum(pick(row, 'bfm of left arm')),
+              trunk: parseNum(pick(row, 'bfm of trunk')),
+              rightLeg: parseNum(pick(row, 'bfm of right leg')),
+              leftLeg: parseNum(pick(row, 'bfm of left leg')),
             },
-            deviceSerial: cleanStr(row['84. Serial']) || 'F92002283',
+            deviceSerial: cleanStr(pick(row, 'serial')) || 'F92002283',
             createdAt: new Date(),
           });
         });
