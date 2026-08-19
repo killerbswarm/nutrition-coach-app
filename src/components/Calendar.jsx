@@ -610,7 +610,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   });
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto bg-slate-950 text-slate-100">
+    <div className="flex-1 p-4 md:p-6 overflow-y-auto bg-slate-950 text-slate-100 min-h-0">
       {/* TOP HEADER & MANAGEMENT TOOLBAR */}
       <div className="flex flex-wrap justify-between items-center pb-6 border-b border-slate-800 mb-6 gap-4">
         <div>
@@ -620,7 +620,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {isOwner && (
             <>
               <button
@@ -655,29 +655,29 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* MAIN SCHEDULE COLUMN */}
         <div className="md:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-          <div className="flex flex-wrap justify-between items-center border-b border-slate-800 pb-3 gap-2">
-            <div className="flex items-center gap-3">
-              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Schedule</h3>
-
-              <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px] overflow-x-auto">
-                <button
-                  onClick={() => setSelectedRoomFilter('ALL')}
-                  className={`px-2.5 py-1 font-bold rounded-md transition-all ${selectedRoomFilter === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                >
-                  All
-                </button>
-                {rooms.map((room) => (
+          <div className="border-b border-slate-800 pb-3 space-y-2">
+            <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Schedule</h3>
+            <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px] overflow-x-auto max-w-full">
+              <button
+                onClick={() => setSelectedRoomFilter('ALL')}
+                className={`px-2.5 py-1 font-bold rounded-md transition-all shrink-0 ${selectedRoomFilter === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                All
+              </button>
+              {rooms.map((room) => {
+                const short = (String(room.name || '').match(/(\d{3})/) || [])[1];
+                return (
                   <button
                     key={room.id}
+                    title={room.name}
                     onClick={() => setSelectedRoomFilter(room.id)}
-                    className={`px-2.5 py-1 font-bold rounded-md transition-all whitespace-nowrap ${selectedRoomFilter === room.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                      }`}
+                    className={`px-2.5 py-1 font-bold rounded-md transition-all shrink-0 ${selectedRoomFilter === room.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   >
-                    {room.name}
+                    <span className="md:hidden">{short ? `${short}` : room.name}</span>
+                    <span className="hidden md:inline">{room.name}</span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
           {/* ===== VIEW SWITCHER — PASTE HERE ===== */}

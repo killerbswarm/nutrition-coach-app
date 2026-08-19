@@ -639,11 +639,11 @@ export default function Clients({ focus, onFocusConsumed }) {
   const currentGhlId = selectedClient?.ghlContactId || selectedClient?.ghlId || selectedClient?.ghl || selectedClient?.contactId || 'N/A';
 
   return (
-    <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
+    <div className="flex flex-col md:flex-row flex-1 h-full min-h-0 overflow-hidden">
       <section
         className={`
-          w-full md:w-72 border-r border-slate-800 bg-slate-900/50 flex-col
-          ${selectedClient ? 'hidden md:flex' : 'flex'}
+          w-full md:w-72 border-r border-slate-800 bg-slate-900/50 flex flex-col flex-1 min-h-0
+          ${selectedClient ? 'hidden md:flex' : ''}
         `}
       >
         <div className="p-4 border-b border-slate-800 space-y-3">
@@ -729,29 +729,29 @@ export default function Clients({ focus, onFocusConsumed }) {
 
       <main
         className={`
-    flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-slate-950 p-4 md:p-6
+    flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-slate-950
     ${selectedClient ? 'flex' : 'hidden md:flex'}
   `}
       >
         {selectedClient ? (
           <>
-            <button
-              type="button"
-              onClick={() => setSelectedClient(null)}
-              className="md:hidden mb-3 text-sm font-bold text-blue-400 text-left"
-            >
-              ← Back to list
-            </button>
-            <div className="flex justify-between items-start pb-6 border-b border-slate-800 mb-6">
-              <div>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-2xl font-black text-white">{selectedClient.name}</h2>
-                  <span className="px-3 py-1 text-xs font-semibold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Coach: {selectedClient.coach || 'Unassigned'}</span>
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-slate-900 border-b border-slate-800">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-blue-400">
+                  {selectedClient.coach ? `Coach: ${selectedClient.coach}` : 'Client'}
                 </div>
+                <div className="text-base font-black text-white truncate">{selectedClient.name}</div>
               </div>
+              <button
+                type="button"
+                onClick={() => setSelectedClient(null)}
+                className="shrink-0 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-200"
+              >
+                Close
+              </button>
             </div>
 
-            <div className="flex border-b border-slate-800 mb-6 gap-6 flex-wrap">
+            <div className="flex border-b border-slate-800 px-4 gap-4 overflow-x-auto">
               {[
                 { id: 'overview', label: 'Overview' },
                 { id: 'inbody', label: `InBody Scans` },
@@ -779,7 +779,7 @@ export default function Clients({ focus, onFocusConsumed }) {
                 </button>
               ))}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
 
                         {activeTab === 'inbody' && selectedClient && (
                 <ClientInBody

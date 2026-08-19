@@ -458,7 +458,7 @@ export default function Dashboard() {
 
             <div className="flex-1 min-w-0 min-h-0 overflow-hidden pt-12 md:pt-0 flex flex-col">
         {currentNavView === 'dashboard' && (
-          <main className="p-6 space-y-6">
+          <main className="p-6 space-y-6 flex-1 min-h-0 overflow-y-auto">
             <div>
               <h2 className="text-2xl font-black text-white">Dashboard</h2>
               <p className="text-xs text-slate-400 mt-1">
@@ -710,7 +710,9 @@ export default function Dashboard() {
 )}
 
         {currentNavView === 'clients' && (
-          <Clients focus={clientsFocus} onFocusConsumed={() => setClientsFocus(null)} />
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <Clients focus={clientsFocus} onFocusConsumed={() => setClientsFocus(null)} />
+          </div>
         )}
         {currentNavView === 'calendar' && (
           <Calendar clients={clients} ghlAppointments={[]} selectedClient={null} />
@@ -719,7 +721,7 @@ export default function Dashboard() {
   <Scans focusScanId={scansFocusId} onFocusConsumed={() => setScansFocusId(null)} />
 )}
         {currentNavView === 'staff' && currentUserRole === 'Owner' && (
-          <main className="flex-1 overflow-y-auto bg-slate-950">
+          <main className="flex-1 min-h-0 overflow-y-auto bg-slate-950">
             <UserManagement />
           </main>
         )}

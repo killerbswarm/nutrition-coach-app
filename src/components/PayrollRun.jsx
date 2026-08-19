@@ -469,7 +469,50 @@ export default function PayrollRun({ config = DEFAULT_CONFIG }) {
               | Staff: <span className="text-blue-400 font-bold">100%</span>
             </span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="md:hidden space-y-3">
+            {filteredTxs.length === 0 ? (
+              <div className="p-6 text-center text-slate-500 text-xs">No payments this period</div>
+            ) : (
+              filteredTxs.map((tx) => {
+                const amt = getPayrollAmount(tx);
+                const cPay = calculateCoachPay(amt, tx.coach, tx.isStaff);
+                const coachObj = coaches.find(
+                  (c) => (c.name || '').trim().toLowerCase() === (tx.coach || '').trim().toLowerCase()
+                );
+                return (
+                  <div key={tx.id} className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white truncate">{tx.client || 'Unknown'}</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {tx.coach || '—'}
+                          {coachObj?.isOwner ? ' · Owner' : ''}
+                          {tx.date ? ` · ${tx.date}` : ''}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-bold text-white">${amt.toFixed(2)}</div>
+                        <div className="text-xs font-bold text-emerald-400">${cPay.toFixed(2)}</div>
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-400">{tx.package || 'Standard'}</div>
+                    {isMixedRetailPackage(tx) && (
+                      <div className="text-[10px] text-amber-400">Mixed cart — check payroll $</div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {tx.isStaff && (
+                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full">Staff</span>
+                      )}
+                      <button type="button" onClick={() => editTransaction(tx.id, getPayrollAmount(tx))} className="ml-auto text-amber-400 text-[11px] font-bold">Edit</button>
+                      <button type="button" onClick={() => deleteTransaction(tx.id)} className="text-red-400 text-[11px] font-bold">Delete</button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-800/60 text-xs uppercase text-slate-400">
                 <tr>

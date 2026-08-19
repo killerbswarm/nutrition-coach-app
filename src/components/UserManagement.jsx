@@ -255,14 +255,38 @@ export default function UserManagement() {
         })}
       </div>
 
-      {/* Payouts only when a staff member is selected */}
-   {selectedStaff && (
-  <StaffPayouts
-    key={selectedStaff.id}
-    selectedCoachName={selectedStaff.name}
-    onClose={() => setSelectedStaff(null)}
-  />
-)}
+      {selectedStaff && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end md:static md:inset-auto md:block">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/70 md:hidden"
+            aria-label="Close payouts"
+            onClick={() => setSelectedStaff(null)}
+          />
+          <div className="relative bg-slate-950 border-t border-slate-800 rounded-t-2xl md:rounded-2xl md:border md:mt-2 max-h-[88vh] md:max-h-none overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-slate-900 border-b border-slate-800">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-blue-400">Payout history</div>
+                <div className="text-base font-black text-white truncate">{selectedStaff.name}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedStaff(null)}
+                className="shrink-0 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-200"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-4">
+              <StaffPayouts
+                key={selectedStaff.id}
+                selectedCoachName={selectedStaff.name}
+                onClose={() => setSelectedStaff(null)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Staff modal */}
       {isAddOpen && (

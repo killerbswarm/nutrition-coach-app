@@ -372,7 +372,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter name, email, or phone…"
-            className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-56 md:w-64"
+            className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-full sm:w-56 md:w-64"
           />
         </div>
       </div>
@@ -399,7 +399,75 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         </div>
       )}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+      <div className="md:hidden space-y-2">
+        {pageScans.length === 0 ? (
+          <div className="text-center text-sm text-slate-500 py-10">No scans match this filter.</div>
+        ) : (
+          pageScans.map((scan) => {
+            const selected = compareScans.some((c) => c.id === scan.id);
+            const needsResolve = canManage && isPlaceholderName(scan.displayName || scan.clientName);
+            return (
+              <div
+                key={scan.id}
+                id={`scan-row-${scan.id}`}
+                className={`bg-slate-900 border rounded-2xl p-3 ${selected ? 'border-blue-500/50' : 'border-slate-800'}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold text-white truncate">
+                      {toTitleCase(scan.displayName || scan.clientName || 'Member')}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{formatDate(scan.scanDate)}</div>
+                    <div className="text-[11px] text-slate-500">{scan.phone || '—'}</div>
+                  </div>
+                  {isCompareMode && (
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleCompare(scan)}
+                      className="w-4 h-4 accent-blue-500 mt-1"
+                    />
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-2 mt-3 text-center">
+                  <div>
+                    <div className="text-[9px] uppercase text-slate-500">Wt</div>
+                    <div className="text-xs font-bold text-white">{scan.weight > 0 ? scan.weight : '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase text-slate-500">SMM</div>
+                    <div className="text-xs font-bold text-blue-400">{scan.smm > 0 ? scan.smm : '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase text-slate-500">BF%</div>
+                    <div className="text-xs font-bold text-purple-400">{scan.pbf > 0 ? `${scan.pbf}%` : '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase text-slate-500">Score</div>
+                    <div className="text-xs font-bold text-amber-400">{scan.score > 0 ? scan.score : '—'}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  <button type="button" onClick={() => setSelectedScan(scan)} className="px-2.5 py-1 rounded-lg bg-blue-600/20 text-blue-400 font-bold text-[11px]">View</button>
+                  {needsResolve && (
+                    <button type="button" onClick={() => resolveNameFromGhl(scan)} className="px-2.5 py-1 rounded-lg text-amber-400 font-bold text-[11px]">
+                      {resolvingId === scan.id ? 'Looking up…' : 'Find name'}
+                    </button>
+                  )}
+                  {canManage && (
+                    <>
+                      <button type="button" onClick={() => openEdit(scan)} className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-bold text-[11px]">Edit</button>
+                      <button type="button" onClick={() => handleDelete(scan.id)} className="px-2.5 py-1 rounded-lg text-red-400 font-bold text-[11px]">Delete</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden md:block bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -513,8 +581,9 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
             </tbody>
           </table>
         </div>
+      </div>
 
-        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-800">
+      <div className="flex items-center justify-between px-1 py-3">
           <div className="text-xs text-slate-500">
             Showing {filtered.length === 0 ? 0 : page * PAGE_SIZE + 1}–
             {Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
@@ -541,7 +610,6 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
             </button>
           </div>
         </div>
-      </div>
 
       {editingScan && canManage && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
