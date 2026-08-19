@@ -1735,3 +1735,23 @@ exports.fatsecretFinishConnect = onRequest(
     }
   }
 );
+exports.inbodyApiTest = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
+  try {
+    const r = await fetch("https://apiusa.lookinbody.com/user/test", {
+      method: "POST",
+      headers: {
+        Account: process.env.INBODY_ACCOUNT || "swarm",
+        "API-KEY": process.env.INBODY_API_KEY || "",
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+    const text = await r.text();
+    return res.status(200).json({ status: r.status, body: text });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+const { inbodyApiPull } = require("./inbodyFetch");
+exports.inbodyApiPull = inbodyApiPull;
