@@ -143,13 +143,19 @@ export default function Dashboard() {
 
   const myClients = clients.filter((c) => {
     if ((c.status || 'active') !== 'active') return false;
+    const coachName = String(c.coach || '').trim().toLowerCase();
+    if (!coachName || coachName === 'unassigned' || coachName === 'none') return false;
     if (currentUserRole === 'Owner') return true;
     return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
   });
 
-  const myClientIds = new Set(myClients.map((c) => c.id));
+  const myRoster = clients.filter((c) => {
+    if (currentUserRole === 'Owner') return true;
+    return c.coachId && currentUser?.uid && c.coachId === currentUser.uid;
+  });
+  const myClientIds = new Set(myRoster.map((c) => c.id));
   const myClientPhones = new Set(
-    myClients.map((c) => String(c.phone || '').replace(/\D/g, '')).filter((p) => p.length >= 7)
+    myRoster.map((c) => String(c.phone || '').replace(/\D/g, '')).filter((p) => p.length >= 7)
   );
 
   const isMyScan = (s) => {
@@ -160,13 +166,6 @@ export default function Dashboard() {
   };
 
   const activeClientCount = myClients.length;
-  const inactiveClientCount = clients.filter((c) => {
-    if (c.status !== 'inactive') return false;
-    if (currentUserRole === 'Owner') return true;
-    const coachName = (currentUser?.displayName || currentUser?.email || '').toLowerCase();
-    const assigned = (c.coach || '').toLowerCase();
-    return assigned === coachName || assigned.includes(coachName.split('@')[0]);
-  }).length;
 
   const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const scansThisWeek = allScans.filter((s) => {
@@ -194,7 +193,8 @@ export default function Dashboard() {
 
   const coachSummary = {};
   myClients.forEach((c) => {
-    const name = c.coach || 'Unassigned';
+    const name = String(c.coach || '').trim();
+    if (!name || name.toLowerCase() === 'unassigned') return;
     coachSummary[name] = (coachSummary[name] || 0) + 1;
   });
 
@@ -470,9 +470,6 @@ export default function Dashboard() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="text-[10px] font-bold text-slate-400 uppercase">Active Clients</div>
                 <div className="text-3xl font-black text-white mt-1">{activeClientCount}</div>
-                {currentUserRole === 'Owner' && (
-                  <div className="text-[11px] text-slate-500 mt-1">{inactiveClientCount} inactive</div>
-                )}
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="text-[10px] font-bold text-slate-400 uppercase">Scans This Week</div>
