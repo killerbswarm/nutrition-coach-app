@@ -1,5 +1,6 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const { fetchFullScan, mapInBodyScan, inbodyApiPull } = require("./inbodyFetch");
 
 const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
@@ -873,20 +874,23 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
 
     if (!matchedClientName) matchedClientName = "Member";
 
+    const userId = payload.UserID || payload.ID || cleanPhone;
+    const datetimes = payload.TestDatetimes || "";
+    const apiData = await fetchFullScan(userId, datetimes);
+    const mapped = mapInBodyScan(apiData || {});
+    if (mapped.clientName) matchedClientName = mapped.clientName;
+
     const scanRecord = {
       clientId: matchedClientId,
       clientName: matchedClientName,
       ghlContactId: matchedGhlId || null,
       phone: cleanPhone,
-      scanDate: parseInBodyDate(findDateStr(payload)),
-      weight: findMetric(payload, "Weight", "WT", "Weight_lbs", "WT_lbs"),
-      smm: findMetric(payload, "SMM", "SkeletalMuscleMass", "SMM_lbs"),
-      pbf: findMetric(payload, "PBF", "PercentBodyFat", "PBF_Percent", "PercentFat"),
-      bfm: findMetric(payload, "BFM", "BodyFatMass", "BFM_lbs"),
-      score: findMetric(payload, "InBodyScore", "Score", "InBody_Score", "TotalScore"),
-      deviceSerial: payload.EquipSerial || payload.DeviceSerial || payload.Equip || "InBody 270/570",
+      scanDate: parseInBodyDate(datetimes || findDateStr(payload)),
+      ...mapped,
+      deviceSerial: mapped.deviceSerial || payload.EquipSerial || payload.DeviceSerial || payload.Equip || "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       rawPayload: payload,
+      rawApi: apiData,
     };
     await db.collection("inbody_scans").add(scanRecord);
     return res.status(200).json({
@@ -1753,5 +1757,39 @@ exports.inbodyApiTest = onRequest({ cors: true, invoker: "public" }, async (req,
   }
 });
 
-const { inbodyApiPull } = require("./inbodyFetch");
 exports.inbodyApiPull = inbodyApiPull;
+
+exports.inbodyBackfill = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
+  try {
+    const userId = String(req.query.userId || req.body?.userId || "").trim();
+    const datetimes = String(req.query.datetimes || req.body?.datetimes || "").trim();
+    if (!userId || !datetimes) {
+      return res.status(400).json({ error: "userId and datetimes required" });
+    }
+    const apiData = await fetchFullScan(userId, datetimes);
+    if (!apiData) {
+      return res.status(404).json({ error: "InBody returned no data" });
+    }
+    const mapped = mapInBodyScan(apiData);
+    const snap = await db.collection("inbody_scans").where("phone", "==", userId).get();
+    let updated = 0;
+    const ids = [];
+    for (const doc of snap.docs) {
+      const raw = doc.data().rawPayload || {};
+      if (String(raw.TestDatetimes || "") === datetimes || snap.size === 1) {
+        await doc.ref.update({
+          ...mapped,
+          clientName: mapped.clientName || doc.data().clientName,
+          deviceSerial: mapped.deviceSerial || doc.data().deviceSerial,
+          rawApi: apiData,
+        });
+        updated += 1;
+        ids.push(doc.id);
+      }
+    }
+    return res.status(200).json({ updated, ids, mapped });
+  } catch (err) {
+    console.error("inbodyBackfill", err);
+    return res.status(500).json({ error: err.message });
+  }
+});

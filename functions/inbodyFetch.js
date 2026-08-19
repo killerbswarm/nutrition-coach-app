@@ -32,6 +32,10 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function kgToLb(v) {
+  return Math.round(num(v) * 2.20462 * 10) / 10;
+}
+
 function mapInBodyScan(d) {
   if (!d || typeof d !== "object") return {};
   return {
@@ -41,25 +45,25 @@ function mapInBodyScan(d) {
     age: num(d.Age),
     gender: d.Gender || "",
     dateOfBirth: d.DateofBirth || "",
-    weight: num(d.Weight),
-    tbw: num(d["TBW(TotalBodyWater)"]),
-    dlm: num(d["DLM(DryLeanMass)"]),
-    bfm: num(d["BFM(BodyFatMass)"]),
-    lbm: num(d["LBM(LeanBodyMass)"]),
-    smm: num(d["SMM(SkeletalMuscleMass)"]),
+    weight: kgToLb(d.Weight),
+    tbw: kgToLb(d["TBW(TotalBodyWater)"]),
+    dlm: kgToLb(d["DLM(DryLeanMass)"]),
+    bfm: kgToLb(d["BFM(BodyFatMass)"]),
+    lbm: kgToLb(d["LBM(LeanBodyMass)"]),
+    smm: kgToLb(d["SMM(SkeletalMuscleMass)"]),
     bmi: num(d["BMI(BodyMassIndex)"]),
     pbf: num(d["PBF(PercentBodyFat)"]),
     bmr: num(d["BMR(BasalMetabolicRate)"]),
     smi: num(d["SMI(SkeletalMuscleIndex)"]),
     score: num(d.InBodyScore),
-    bfmControl: num(d.BFMControl),
+    bfmControl: kgToLb(d.BFMControl),
     deviceSerial: d.Serial || d.InBodyType || "",
     segmentalLean: {
-      rightArm: num(d.LBMofRightArm),
-      leftArm: num(d.LBMofLeftArm),
-      trunk: num(d.LBMofTrunk),
-      rightLeg: num(d.LBMofRightLeg),
-      leftLeg: num(d.LBMofLeftLeg),
+      rightArm: kgToLb(d.LBMofRightArm),
+      leftArm: kgToLb(d.LBMofLeftArm),
+      trunk: kgToLb(d.LBMofTrunk),
+      rightLeg: kgToLb(d.LBMofRightLeg),
+      leftLeg: kgToLb(d.LBMofLeftLeg),
     },
     segmentalLeanPct: {
       rightArm: num(d["LBM%ofRightArm"]),
