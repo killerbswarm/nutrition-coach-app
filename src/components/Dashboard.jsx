@@ -8,6 +8,7 @@ import UserManagement from './UserManagement';
 import Scans from './Scans';
 import PayrollShell from './PayrollShell';
 import { useTheme } from '../context/ThemeContext';
+import AppVersion from './AppVersion';
 
 
 const parseScanDate = (dateVal) => {
@@ -208,6 +209,7 @@ export default function Dashboard() {
           currentUserRole === 'Owner'
             ? null
             : (currentUser?.displayName || currentUser?.email || '');
+            
 
         const withGhl = clients
           .filter((c) => {
@@ -416,9 +418,10 @@ export default function Dashboard() {
                 {currentUserRole}
               </span>
             </div>
-            <div className="text-[11px] text-slate-500 truncate mt-0.5">
-              {currentUser?.email}
-            </div>
+          <div className="text-[11px] text-slate-500 truncate mt-0.5">
+  {currentUser?.email}
+</div>
+<AppVersion />
           </div>
 
           <div className="grid grid-cols-3 gap-1.5">

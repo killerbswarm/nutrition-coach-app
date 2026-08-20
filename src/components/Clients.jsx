@@ -642,8 +642,8 @@ export default function Clients({ focus, onFocusConsumed }) {
     <div className="flex flex-col md:flex-row flex-1 h-full min-h-0 overflow-hidden">
       <section
         className={`
-          w-full md:w-72 border-r border-slate-800 bg-slate-900/50 flex flex-col flex-1 min-h-0
-          ${selectedClient ? 'hidden md:flex' : ''}
+          border-r border-slate-800 bg-slate-900/50 flex flex-col min-h-0 shrink-0
+          ${selectedClient ? 'hidden xl:flex xl:w-72' : 'w-full md:w-80 flex-1 md:flex-none'}
         `}
       >
         <div className="p-4 border-b border-slate-800 space-y-3">
@@ -696,7 +696,7 @@ export default function Clients({ focus, onFocusConsumed }) {
                           }`}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="font-bold text-sm text-white truncate">{c.name}</span>
+                          <span className="font-bold text-sm text-white leading-tight break-words">{c.name}</span>
                           <span
                             className={`shrink-0 px-2 py-0.5 text-[10px] font-bold rounded-full border ${(c.status || 'active') === 'active'
                               ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
@@ -735,12 +735,12 @@ export default function Clients({ focus, onFocusConsumed }) {
       >
         {selectedClient ? (
           <>
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-slate-900 border-b border-slate-800">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-3 bg-slate-900">
               <div className="min-w-0">
                 <div className="text-[10px] uppercase font-bold tracking-wider text-blue-400">
                   {selectedClient.coach ? `Coach: ${selectedClient.coach}` : 'Client'}
                 </div>
-                <div className="text-base font-black text-white truncate">{selectedClient.name}</div>
+                <div className="text-xl font-black text-white truncate">{selectedClient.name}</div>
               </div>
               <button
                 type="button"
@@ -751,7 +751,7 @@ export default function Clients({ focus, onFocusConsumed }) {
               </button>
             </div>
 
-            <div className="flex border-b border-slate-800 px-4 gap-4 overflow-x-auto">
+            <div className="flex border-b border-slate-800 px-5 gap-5 overflow-x-auto overflow-y-hidden pt-1">
               {[
                 { id: 'overview', label: 'Overview' },
                 { id: 'inbody', label: `InBody Scans` },
@@ -770,7 +770,7 @@ export default function Clients({ focus, onFocusConsumed }) {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`pb-3 text-sm font-bold transition-colors border-b-2 ${activeTab === tab.id
+                  className={`pt-2 pb-2.5 text-sm font-bold transition-colors border-b-2 -mb-px ${activeTab === tab.id
                     ? 'border-blue-500 text-blue-400'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
@@ -779,7 +779,7 @@ export default function Clients({ focus, onFocusConsumed }) {
                 </button>
               ))}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4">
 
                         {activeTab === 'inbody' && selectedClient && (
                 <ClientInBody
@@ -853,8 +853,14 @@ export default function Clients({ focus, onFocusConsumed }) {
 
               {activeTab === 'notes' && selectedClient && (
                 <ClientNotes
+                  selectedClient={selectedClient}
                   notes={ghlData.notes || []}
                   loadingGhl={loadingGhl}
+                  canManage={
+                    isOwner ||
+                    currentUserRole === 'Owner' ||
+                    (selectedClient.coachId && currentUser?.uid && selectedClient.coachId === currentUser.uid)
+                  }
                 />
               )}
 

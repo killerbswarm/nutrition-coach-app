@@ -42,10 +42,12 @@ const formatDate = (dateVal) => {
 
 function InBodyProgressChart({ scans }) {
   const [metric, setMetric] = useState('weight');
+  const [labelMode, setLabelMode] = useState(null);
   if (!scans || scans.length === 0) return null;
   const sortedScans = [...scans].sort((a, b) => (parseScanDate(a.scanDate)?.getTime() ?? 0) - (parseScanDate(b.scanDate)?.getTime() ?? 0));
   if (sortedScans.length < 2) return <div className="text-xs text-slate-400 text-center py-4">Log at least 2 scans to view progress trends.</div>;
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+  const resolvedLabels = labelMode || (sortedScans.length <= 8 ? 'full' : 'limited');
   const firstScan = sortedScans[0];
   const latestScan = sortedScans[sortedScans.length - 1];
   const weightDiff = (num(latestScan.weight) - num(firstScan.weight)).toFixed(1);
@@ -55,7 +57,6 @@ function InBodyProgressChart({ scans }) {
     weight: { label: 'Weight', color: '#3b82f6', getValue: (s) => num(s.weight) },
     smm: { label: 'Muscle (SMM)', color: '#10b981', getValue: (s) => num(s.smm) },
     pbf: { label: 'Body Fat %', color: '#a855f7', getValue: (s) => num(s.pbf) },
-    score: { label: 'InBody Score', color: '#f59e0b', getValue: (s) => num(s.score) },
   };
   const config = metricConfigs[metric];
   const values = sortedScans.map(config.getValue).filter((v) => v > 0);
@@ -72,13 +73,45 @@ function InBodyProgressChart({ scans }) {
   });
   const pathD = points.reduce((acc, p, idx) => (idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`), '');
   const areaD = `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
-  const showLabels = sortedScans.length <= 20;
+  const labeled = new Set();
+  if (resolvedLabels === 'full') {
+    points.forEach((_, idx) => labeled.add(idx));
+  } else if (resolvedLabels === 'limited') {
+    labeled.add(0);
+    labeled.add(points.length - 1);
+    let hi = 0;
+    let lo = 0;
+    points.forEach((p, idx) => {
+      if (p.val >= points[hi].val) hi = idx;
+      if (p.val <= points[lo].val) lo = idx;
+    });
+    labeled.add(hi);
+    labeled.add(lo);
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs w-fit">
-        {Object.keys(metricConfigs).map((key) => (
-          <button key={key} onClick={() => setMetric(key)} className={`px-3 py-1.5 font-bold rounded-lg transition-all ${metric === key ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>{metricConfigs[key].label}</button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs w-fit">
+          {Object.keys(metricConfigs).map((key) => (
+            <button key={key} onClick={() => setMetric(key)} className={`px-3 py-1.5 font-bold rounded-lg transition-all ${metric === key ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>{metricConfigs[key].label}</button>
+          ))}
+        </div>
+        <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs w-fit">
+          {[
+            { id: 'full', label: 'Full labels' },
+            { id: 'limited', label: 'Limited' },
+            { id: 'none', label: 'None' },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setLabelMode(opt.id)}
+              className={`px-2.5 py-1.5 font-bold rounded-lg transition-all ${resolvedLabels === opt.id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3 text-xs">
         <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl text-center">
@@ -101,13 +134,19 @@ function InBodyProgressChart({ scans }) {
           <path d={pathD} fill="none" stroke={config.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           {points.map((p, idx) => (
             <g key={idx}>
-              <circle cx={p.x} cy={p.y} r={showLabels ? 4 : 2.5} fill="#0f172a" stroke={config.color} strokeWidth="2" />
-              {showLabels && <text x={p.x} y={p.y - 9} fill="#e2e8f0" fontSize="9" fontWeight="bold" textAnchor="middle">{p.val}</text>}
+              <circle cx={p.x} cy={p.y} r={labeled.has(idx) ? 4 : 2.5} fill="#0f172a" stroke={config.color} strokeWidth="2" />
+              {labeled.has(idx) && p.val > 0 && (
+                <text x={p.x} y={p.y - 9} fill="#e2e8f0" fontSize="9" fontWeight="bold" textAnchor="middle">
+                  {Number(p.val).toFixed(1)}
+                </text>
+              )}
             </g>
           ))}
         </svg>
       </div>
-      {!showLabels && <p className="text-[10px] text-slate-500 text-center">Labels hidden (many scans).</p>}
+      {resolvedLabels === 'limited' && (
+        <p className="text-[10px] text-slate-500 text-center">Showing first, latest, high, and low.</p>
+      )}
     </div>
   );
 }

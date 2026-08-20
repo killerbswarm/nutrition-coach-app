@@ -88,7 +88,6 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
     weight: '',
     smm: '',
     pbf: '',
-    score: '',
     scanDate: '',
   });
   const [isAdminUploadOpen, setIsAdminUploadOpen] = useState(false);
@@ -205,7 +204,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
       weight: scan.weight ?? '',
       smm: scan.smm ?? '',
       pbf: scan.pbf ?? '',
-      score: scan.score ?? '',
+      bmi: scan.bmi ?? '',
       scanDate: local,
     });
     setEditingScan(scan);
@@ -221,7 +220,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         weight: parseFloat(editForm.weight) || 0,
         smm: parseFloat(editForm.smm) || 0,
         pbf: parseFloat(editForm.pbf) || 0,
-        score: parseFloat(editForm.score) || 0,
+        bmi: parseFloat(editForm.bmi) || 0,
         updatedAt: new Date(),
       };
       if (editForm.scanDate) payload.scanDate = new Date(editForm.scanDate).toISOString();
@@ -443,8 +442,8 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
                     <div className="text-xs font-bold text-purple-400">{scan.pbf > 0 ? `${scan.pbf}%` : '—'}</div>
                   </div>
                   <div>
-                    <div className="text-[9px] uppercase text-slate-500">Score</div>
-                    <div className="text-xs font-bold text-amber-400">{scan.score > 0 ? scan.score : '—'}</div>
+                    <div className="text-[9px] uppercase text-slate-500">BMI</div>
+                    <div className="text-xs font-bold text-amber-400">{scan.bmi > 0 ? scan.bmi : '—'}</div>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-3">
@@ -479,7 +478,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
                 <th className="text-right px-4 py-3 font-bold">Weight</th>
                 <th className="text-right px-4 py-3 font-bold">SMM</th>
                 <th className="text-right px-4 py-3 font-bold">BF%</th>
-                <th className="text-right px-4 py-3 font-bold">Score</th>
+                <th className="text-right px-4 py-3 font-bold">BMI</th>
                 <th className="text-right px-4 py-3 font-bold">Actions</th>
               </tr>
             </thead>
@@ -543,7 +542,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
                         {scan.pbf > 0 ? `${scan.pbf}%` : '—'}
                       </td>
                       <td className="px-4 py-2.5 text-right text-amber-400 font-bold">
-                        {scan.score > 0 ? scan.score : '—'}
+                        {scan.bmi > 0 ? scan.bmi : '—'}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex justify-end gap-1.5 flex-wrap">
@@ -680,12 +679,12 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 font-medium">Score</label>
+                  <label className="text-xs text-slate-400 font-medium">BMI</label>
                   <input
                     type="number"
                     step="0.1"
-                    value={editForm.score}
-                    onChange={(e) => setEditForm({ ...editForm, score: e.target.value })}
+                    value={editForm.bmi || ''}
+                    onChange={(e) => setEditForm({ ...editForm, bmi: e.target.value })}
                     className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
                   />
                 </div>
@@ -716,6 +715,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
           scan={selectedScan}
           onClose={() => setSelectedScan(null)}
           onDelete={canManage ? handleDelete : undefined}
+          canViewRaw={!!isOwner}
         />
       )}
 

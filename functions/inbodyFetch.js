@@ -55,8 +55,14 @@ function mapInBodyScan(d) {
     pbf: num(d["PBF(PercentBodyFat)"]),
     bmr: num(d["BMR(BasalMetabolicRate)"]),
     smi: num(d["SMI(SkeletalMuscleIndex)"]),
-    score: num(d.InBodyScore),
+    score: num(d.InBodyScore) || null,
     bfmControl: kgToLb(d.BFMControl),
+    visceralFat: num(d["VFL(VisceralFatLevel)"] || d.VFL),
+    icw: kgToLb(d["ICW(IntracellularWater)"]),
+    ecw: kgToLb(d["ECW(ExtracellularWater)"]),
+    ecwTbw: num(d["ECW/TBW"]),
+    armCircumference: num(d["AC(ArmCircumference)"]),
+    inBodyType: d.InBodyType || "",
     deviceSerial: d.Serial || d.InBodyType || "",
     segmentalLean: {
       rightArm: kgToLb(d.LBMofRightArm),
@@ -71,6 +77,20 @@ function mapInBodyScan(d) {
       trunk: num(d["LBM%ofTrunk"]),
       rightLeg: num(d["LBM%ofRightLeg"]),
       leftLeg: num(d["LBM%ofLeftLeg"]),
+    },
+    segmentalFat: {
+      rightArm: kgToLb(d.BFMofRightArm),
+      leftArm: kgToLb(d.BFMofLeftArm),
+      trunk: kgToLb(d.BFMofTrunk),
+      rightLeg: kgToLb(d.BFMofRightLeg),
+      leftLeg: kgToLb(d.BFMofLeftLeg),
+    },
+    segmentalFatPct: {
+      rightArm: num(d["BFM%ofRightArm"]),
+      leftArm: num(d["BFM%ofLeftArm"]),
+      trunk: num(d["BFM%ofTrunk"]),
+      rightLeg: num(d["BFM%ofRightLeg"]),
+      leftLeg: num(d["BFM%ofLeftLeg"]),
     },
   };
 }
