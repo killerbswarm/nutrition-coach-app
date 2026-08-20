@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
@@ -41,6 +42,7 @@ const formatDate = (dateVal) => {
 
 
 function InBodyProgressChart({ scans }) {
+  const { theme } = useTheme();
   const [metric, setMetric] = useState('weight');
   const [labelMode, setLabelMode] = useState(null);
   if (!scans || scans.length === 0) return null;
@@ -134,9 +136,9 @@ function InBodyProgressChart({ scans }) {
           <path d={pathD} fill="none" stroke={config.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           {points.map((p, idx) => (
             <g key={idx}>
-              <circle cx={p.x} cy={p.y} r={labeled.has(idx) ? 4 : 2.5} fill="#0f172a" stroke={config.color} strokeWidth="2" />
+              <circle cx={p.x} cy={p.y} r={labeled.has(idx) ? 4 : 2.5} fill={theme === "light" ? "#ffffff" : "#0f172a"} stroke={config.color} strokeWidth="2" />
               {labeled.has(idx) && p.val > 0 && (
-                <text x={p.x} y={p.y - 9} fill="#e2e8f0" fontSize="9" fontWeight="bold" textAnchor="middle">
+                <text x={p.x} y={p.y - 9} fill={theme === "light" ? "#0f172a" : "#e2e8f0"} fontSize="9" fontWeight="bold" textAnchor="middle">
                   {Number(p.val).toFixed(1)}
                 </text>
               )}

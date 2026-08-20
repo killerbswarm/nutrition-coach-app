@@ -190,3 +190,23 @@ html.light .text-slate-100 {
 html.light .text-amber-400 {
   color: #b45309 !important;
 }
+
+/* SVG / charts — Tailwind classes do not apply to fill="" */
+html.light svg text {
+  fill: #0f172a !important;
+}
+html.dark svg text {
+  fill: #e2e8f0;
+}
+
+/* Keep blue primary buttons readable */
+html.light .bg-blue-600,
+html.light button.bg-blue-600 {
+  color: #ffffff !important;
+}
+
+/* Don't force tiny labels on colored chips to go muddy */
+html.light .bg-blue-600 .text-\[10px\],
+html.light .bg-blue-600 .text-\[11px\] {
+  color: #ffffff !important;
+}

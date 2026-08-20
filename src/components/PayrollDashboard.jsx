@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTheme } from '../context/ThemeContext';
 import { db } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { getPayrollAmount } from '../utils/payrollAmounts';
@@ -34,6 +35,8 @@ ChartJS.register(
 const DEFAULT_CONFIG = { payNumerator: 4, payDenominator: 9 };
 
 export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const [coaches, setCoaches] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [tfMonths, setTfMonths] = useState(12);
@@ -213,15 +216,19 @@ export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
         ).toFixed(1)
       : 0;
 
+  const tick = isLight ? '#334155' : '#94a3b8';
+  const label = isLight ? '#0f172a' : '#f8fafc';
+  const grid = isLight ? '#cbd5e1' : '#334155';
+
   const chartOpts = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { labels: { color: '#f8fafc', font: { size: 11, weight: '600' } } },
+      legend: { labels: { color: label, font: { size: 11, weight: '600' } } },
     },
     scales: {
-      x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-      y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+      x: { ticks: { color: tick }, grid: { color: grid } },
+      y: { ticks: { color: tick }, grid: { color: grid } },
     },
   };
 
@@ -370,7 +377,7 @@ export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
                   plugins: {
                     legend: {
                       position: 'bottom',
-                      labels: { color: '#f8fafc', font: { size: 10 } },
+                      labels: { color: label, font: { size: 10 } },
                     },
                   },
                 }}
@@ -399,7 +406,7 @@ export default function PayrollDashboard({ config = DEFAULT_CONFIG }) {
                 ...chartOpts,
                 scales: {
                   ...chartOpts.scales,
-                  y: { ...chartOpts.scales.y, ticks: { color: '#94a3b8', stepSize: 1 } },
+                  y: { ...chartOpts.scales.y, ticks: { color: tick, stepSize: 1 } },
                 },
               }}
             />
