@@ -5,7 +5,7 @@ import {
   doc,
   getDocs,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { masterDb } from '../masterFirebase';
 
 const parseCsvLine = (text) => {
   const result = [];
@@ -116,7 +116,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
     const chunkSize = 400;
     for (let i = 0; i < items.length; i += chunkSize) {
       const chunk = items.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
+      const batch = writeBatch(masterDb);
       chunk.forEach((item) => writer(batch, item));
       await batch.commit();
     }
@@ -148,7 +148,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
 
       if (replaceAll) {
         setStatusMsg('Clearing existing scans...');
-        const existing = await getDocs(collection(db, 'inbody_scans'));
+        const existing = await getDocs(collection(masterDb, 'inbody_scans'));
         await commitBatches(existing.docs, (batch, d) => batch.delete(d.ref));
       }
 
@@ -161,7 +161,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
 
       for (let i = 0; i < totalRows; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
+        const batch = writeBatch(masterDb);
 
         chunk.forEach((row) => {
           const rawName = cleanStr(pick(row, 'name'));
@@ -259,7 +259,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
           };
           if (scoreVal > 0) record.score = scoreVal;
 
-          batch.set(doc(db, 'inbody_scans', docKey), record, { merge: true });
+          batch.set(doc(masterDb, 'inbody_scans', docKey), record, { merge: true });
         });
 
         await batch.commit();

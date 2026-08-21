@@ -10,6 +10,9 @@ const GOOGLE_SA_KEY = defineSecret("GOOGLE_SA_KEY"); // use the secret name you 
 const CALENDAR_TIMEZONE = "America/New_York";
 const crypto = require("crypto");
 
+const { getMasterDb } = require("./masterDb");
+await getMasterDb().collection("inbody_scans").add(scanRecord);
+
 if (!admin.apps.length) {
   admin.initializeApp();
 }
