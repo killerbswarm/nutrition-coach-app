@@ -23,9 +23,15 @@ export function AuthProvider({ children }) {
       if (user) {
         setCurrentUser(user);
         try {
-          const userDoc = await getDoc(doc(db, "users", user.uid));
+          const userRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userRef);
           if (userDoc.exists()) {
             setUserRole(userDoc.data().role || "coach");
+            const prev = userDoc.data().lastLoginAt;
+            const prevMs = prev?.toDate ? prev.toDate().getTime() : prev ? new Date(prev).getTime() : 0;
+            if (!prevMs || Date.now() - prevMs > 15 * 60 * 1000) {
+              await updateDoc(userRef, { lastLoginAt: new Date() });
+            }
           } else {
             setUserRole("coach");
           }
