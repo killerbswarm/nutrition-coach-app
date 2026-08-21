@@ -11,7 +11,6 @@ const CALENDAR_TIMEZONE = "America/New_York";
 const crypto = require("crypto");
 
 const { getMasterDb } = require("./masterDb");
-await getMasterDb().collection("inbody_scans").add(scanRecord);
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -797,7 +796,7 @@ exports.syncBookingCreateToGhl = onDocumentCreated("bookings/{bookingId}", async
 // =========================================================================
 // ENDPOINT 7: InBody Webhook
 // =========================================================================
-exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
+exports.inbodyWebhook = onRequest({ cors: true, invoker: "public", secrets: ["MASTER_SERVICE_ACCOUNT"] }, async (req, res) => {
   try {
     if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
@@ -895,7 +894,7 @@ exports.inbodyWebhook = onRequest({ cors: true, invoker: "public" }, async (req,
       rawPayload: payload,
       rawApi: apiData,
     };
-    await db.collection("inbody_scans").add(scanRecord);
+    await getMasterDb().collection("inbody_scans").add(scanRecord);
     return res.status(200).json({
       success: true,
       message: "InBody scan saved",
@@ -1762,7 +1761,7 @@ exports.inbodyApiTest = onRequest({ cors: true, invoker: "public" }, async (req,
 
 exports.inbodyApiPull = inbodyApiPull;
 
-exports.inbodyBackfill = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
+exports.inbodyBackfill = onRequest({ cors: true, invoker: "public", secrets: ["MASTER_SERVICE_ACCOUNT"] }, async (req, res) => {
   try {
     const userId = String(req.query.userId || req.body?.userId || "").trim();
     const datetimes = String(req.query.datetimes || req.body?.datetimes || "").trim();
@@ -1774,7 +1773,7 @@ exports.inbodyBackfill = onRequest({ cors: true, invoker: "public" }, async (req
       return res.status(404).json({ error: "InBody returned no data" });
     }
     const mapped = mapInBodyScan(apiData);
-    const snap = await db.collection("inbody_scans").where("phone", "==", userId).get();
+    const snap = await getMasterDb().collection("inbody_scans").where("phone", "==", userId).get();
     let updated = 0;
     const ids = [];
     for (const doc of snap.docs) {
