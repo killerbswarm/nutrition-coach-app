@@ -22,6 +22,33 @@ const timeToMinutes = (timeStr) => {
   return hours * 60 + minutes;
 };
 
+function formatApptTime(raw) {
+  if (!raw && raw !== 0) return '';
+  const s = String(raw).trim();
+  const ampm = s.match(/\s*(am|pm)$/i);
+  const core = s.replace(/\s*(am|pm)$/i, '').trim();
+  const parts = core.split(':');
+  let h = parseInt(parts[0], 10);
+  let m = parseInt(parts[1] || '0', 10);
+  if (isNaN(h)) return s;
+  if (isNaN(m)) m = 0;
+  let suffix = 'AM';
+  if (ampm) {
+    suffix = ampm[1].toUpperCase();
+    if (suffix === 'PM' && h < 12) h += 12;
+    if (suffix === 'AM' && h === 12) h = 0;
+  }
+  suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+function roomCode(appt, rooms = []) {
+  const name = appt?.roomName || rooms.find((r) => r.id === appt?.roomId)?.name || '';
+  const m = String(name).match(/(\d{3})/);
+  return m ? m[1] : '';
+}
+
 const isPastAppointment = (appt) => {
   if (!appt?.date) return false;
   const time = appt.time && /^\d{1,2}:\d{2}/.test(appt.time) ? appt.time : '23:59';
@@ -37,6 +64,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
   const [appointmentTypes, setAppointmentTypes] = useState([]);
   const [calView, setCalView] = useState('list'); // list | day | week | month
   const [viewDate, setViewDate] = useState(() => new Date()); // anchor for day/week/month
+  const [hoverTip, setHoverTip] = useState(null);
   const { isOwner, currentUser, currentUserRole } = useAuth();
   // if your AuthContext uses userRole instead of currentUserRole, use that name
 
@@ -837,7 +865,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                       <div className="flex items-center gap-3 shrink-0">
                         <div className={`text-right text-xs ${past ? 'text-slate-500' : 'text-slate-300'}`}>
                           <div className="font-semibold">{appt.date}</div>
-                          <div>{appt.time}</div>
+                          <div>{formatApptTime(appt.time)}</div>
                         </div>
 
                         {canModifyBooking(appt) && (
@@ -883,7 +911,7 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                       className="w-full text-left p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-blue-500/40"
                     >
                       <div className="font-bold text-white text-sm">
-                        {appt.time} · {appt.clientName}
+                        {formatApptTime(appt.time)} · {appt.clientName}
                       </div>
                       <div className="text-xs text-slate-400">
                         {appt.appointmentTypeName || 'Appt'} · {appt.roomName || 'Room'}
@@ -919,9 +947,12 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                           onClick={() => {
                             if (canModifyBooking(appt)) openEditBooking(appt);
                           }}
-                          className="w-full text-left px-1.5 py-1 rounded-lg bg-blue-600/20 text-[10px] text-blue-200"
+                          className="w-full text-left px-1.5 py-1 rounded-lg bg-blue-600/20 text-[10px] text-blue-300"
                         >
-                          <div className="font-bold">{appt.time}</div>
+                          <div className="font-bold leading-tight">
+                            {formatApptTime(appt.time)}
+                            {roomCode(appt, rooms) ? ` · ${roomCode(appt, rooms)}` : ''}
+                          </div>
                           <div className="truncate">{appt.clientName}</div>
                         </button>
                       ))}
@@ -937,6 +968,10 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
             const month = viewDate.getMonth();
             const start = startOfWeek(new Date(year, month, 1));
             const cells = Array.from({ length: 42 }, (_, i) => addDays(start, i));
+            const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+            const monthItems = visibleBookings
+              .filter((b) => (b.date || '').startsWith(monthPrefix))
+              .sort((a, b) => String(a.date).localeCompare(b.date) || String(a.time).localeCompare(b.time));
             return (
               <div>
                 <div className="grid grid-cols-7 gap-1 mb-1">
@@ -950,31 +985,65 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
                   {cells.map((d) => {
                     const ymd = toYMD(d);
                     const inMonth = d.getMonth() === month;
-                    const items = bookingsOn(ymd);
+                    const items = bookingsOn(ymd).sort((a, b) =>
+                      (a.time || '').localeCompare(b.time || '')
+                    );
                     const isToday = ymd === toYMD(new Date());
                     return (
-                      <button
+                      <div
                         key={ymd}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() => {
                           setViewDate(d);
                           setCalView('day');
                         }}
-                        className={`min-h-[68px] p-1 rounded-xl border text-left ${isToday ? 'border-blue-500/50 bg-blue-600/10' : 'border-slate-800 bg-slate-950'
+                        className={`min-h-[40px] sm:min-h-[108px] p-1 sm:p-1.5 rounded-xl border text-left align-top cursor-pointer ${isToday ? 'border-blue-500/50 bg-blue-600/10' : 'border-slate-800 bg-slate-950'
                           } ${inMonth ? '' : 'opacity-40'}`}
                       >
-                        <div className="text-[11px] font-bold text-slate-300">{d.getDate()}</div>
-                        {items.slice(0, 2).map((appt) => (
-                          <div key={appt.id} className="truncate text-[9px] text-blue-300">
-                            {appt.time} {appt.clientName}
-                          </div>
-                        ))}
-                        {items.length > 2 && (
-                          <div className="text-[9px] text-slate-500">+{items.length - 2}</div>
-                        )}
-                      </button>
+                        <div className="flex items-center justify-between">
+                          <div className="text-[11px] font-bold text-slate-300">{d.getDate()}</div>
+                          {items.length > 0 && (
+                            <span className="sm:hidden w-1.5 h-1.5 rounded-full bg-blue-400" />
+                          )}
+                        </div>
+                        <div className="hidden sm:block space-y-1 mt-1">
+                          {items.map((appt) => (
+                            <div key={appt.id} className="text-[9px] leading-tight text-blue-300">
+                              <div className="font-bold">
+                                {formatApptTime(appt.time)}
+                                {roomCode(appt, rooms) ? ` · ${roomCode(appt, rooms)}` : ''}
+                              </div>
+                              <div className="text-slate-200">{appt.clientName}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     );
                   })}
+                </div>
+
+                <div className="sm:hidden mt-3 space-y-1.5">
+                  {monthItems.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-3">No bookings this month</p>
+                  ) : (
+                    monthItems.map((appt) => (
+                      <button
+                        key={appt.id}
+                        type="button"
+                        onClick={() => {
+                          if (canModifyBooking(appt)) openEditBooking(appt);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl bg-slate-950 border border-slate-800"
+                      >
+                        <div className="text-[11px] font-bold text-slate-400">
+                          {appt.date} · {formatApptTime(appt.time)}
+                          {roomCode(appt, rooms) ? ` · ${roomCode(appt, rooms)}` : ''}
+                        </div>
+                        <div className="text-sm font-semibold text-white">{appt.clientName}</div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             );
@@ -1388,6 +1457,15 @@ export default function Calendar({ clients = [], ghlAppointments = [], selectedC
 
             </div>
           </div>
+        </div>
+      )}
+
+      {hoverTip && (
+        <div
+          className="fixed z-[80] -translate-x-1/2 -translate-y-full pointer-events-none rounded-md bg-slate-800 border border-slate-500 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-xl whitespace-nowrap"
+          style={{ left: hoverTip.x, top: hoverTip.y - 8 }}
+        >
+          {hoverTip.text}
         </div>
       )}
     </div>

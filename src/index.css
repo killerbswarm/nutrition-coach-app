@@ -210,3 +210,11 @@ html.light .bg-blue-600 .text-\[10px\],
 html.light .bg-blue-600 .text-\[11px\] {
   color: #ffffff !important;
 }
+/* Calendar booking chips */
+html.light .text-blue-200,
+html.light .text-blue-100 {
+  color: #1d4ed8 !important;
+}
+html.light .text-blue-300 {
+  color: #1e40af !important;
+}
