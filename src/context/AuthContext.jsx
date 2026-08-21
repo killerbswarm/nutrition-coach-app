@@ -9,7 +9,7 @@ import {
   reauthenticateWithCredential,
   updatePassword,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 const AuthContext = createContext();
 
@@ -43,16 +43,22 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+  const login = async (email, password) => {
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    try {
+      await updateDoc(doc(db, "users", cred.user.uid), {
+        lastLoginAt: new Date(),
+      });
+    } catch (err) {
+      console.error("Failed to record last login:", err);
+    }
+    return cred;
+  };
+
   const logout = () => signOut(auth);
 
-  /** Send password-reset email (Forgot password on Login). */
   const resetPassword = (email) => sendPasswordResetEmail(auth, email);
 
-  /**
-   * Change password while logged in.
-   * Re-authenticates with current password, then sets the new one.
-   */
   const changePassword = async (currentPassword, newPassword) => {
     const user = auth.currentUser;
     if (!user || !user.email) {

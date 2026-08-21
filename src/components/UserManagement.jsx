@@ -15,6 +15,19 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+function formatLastLogin(value) {
+  if (!value) return "Never";
+  const d = value.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(d.getTime())) return "Never";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [name, setName] = useState("");
@@ -34,10 +47,10 @@ export default function UserManagement() {
     role: "coach",
     ghlUserId: "",
   });
-  const [selectedStaff, setSelectedStaff] = useState(null); // user object or null
+  const [selectedStaff, setSelectedStaff] = useState(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [ghlUserId, setGhlUserId] = useState("");
-  
+
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "users"), (snapshot) => {
       setUsers(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
@@ -45,7 +58,7 @@ export default function UserManagement() {
     return () => unsub();
   }, []);
 
-    const openEditUser = (u) => {
+  const openEditUser = (u) => {
     setEditingUser(u);
     setEditForm({
       name: u.name || "",
@@ -66,8 +79,6 @@ export default function UserManagement() {
         phone: editForm.phone.trim(),
         role: editForm.role,
         ghlUserId: (editForm.ghlUserId || "").trim(),
-        // email usually stays the Auth login — only update display field if you want:
-        // email: editForm.email.trim().toLowerCase(),
         updatedAt: new Date(),
       });
       setSuccess("Staff member updated.");
@@ -96,13 +107,14 @@ export default function UserManagement() {
       const newUser = userCredential.user;
 
       await setDoc(doc(db, "users", newUser.uid), {
-  name: name.trim(),
-  email: email.trim().toLowerCase(),
-  phone: phone.trim(),
-  role: role,
-  ghlUserId: (ghlUserId || "").trim(),
-  createdAt: new Date(),
-});
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        role: role,
+        ghlUserId: (ghlUserId || "").trim(),
+        createdAt: new Date(),
+        lastLoginAt: null,
+      });
 
       await signOut(secondaryAuth);
       await deleteApp(secondaryApp);
@@ -123,24 +135,6 @@ export default function UserManagement() {
     }
   };
 
-  const handleRoleChange = async (userId, newRole) => {
-    try {
-      await updateDoc(doc(db, "users", userId), { role: newRole });
-      setSuccess("User role updated successfully.");
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const handlePhoneChange = async (userId, newPhone) => {
-    try {
-      await updateDoc(doc(db, "users", userId), { phone: newPhone.trim() });
-      setSuccess("Phone updated.");
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   const handleDeleteUser = async (userId, label) => {
     if (!window.confirm(`Remove staff member "${label}" from the app roster?\n\n(Note: This removes their Firestore profile; the Auth login may still exist.)`)) return;
     try {
@@ -154,7 +148,7 @@ export default function UserManagement() {
   const inputClass =
     "w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500";
 
-   return (
+  return (
     <div className="p-6 space-y-6 text-slate-100">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -192,7 +186,6 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* Staff list */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2">
         {users.length === 0 && (
           <div className="py-8 text-center text-sm text-slate-500">No staff yet</div>
@@ -226,9 +219,8 @@ export default function UserManagement() {
                 </div>
                 <div className="min-w-0">
                   <div className="font-semibold text-white truncate">{u.name || "Unnamed Staff"}</div>
-                  <div className="text-xs text-slate-400 truncate">{u.email}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {u.phone ? `Phone: ${u.phone}` : "No phone"} · {u.role || "coach"}
+                  <div className="text-xs text-slate-400 truncate">
+                    {u.role || "coach"} · Last login {formatLastLogin(u.lastLoginAt)}
                   </div>
                 </div>
               </div>
@@ -288,7 +280,6 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* Add Staff modal */}
       {isAddOpen && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
@@ -336,18 +327,18 @@ export default function UserManagement() {
                 />
               </div>
               <div>
-  <label className="text-xs text-slate-400 font-medium">GHL User ID</label>
-  <input
-    type="text"
-    value={editForm.ghlUserId}
-    onChange={(e) => setEditForm({ ...editForm, ghlUserId: e.target.value })}
-    placeholder="GoHighLevel user id for this coach"
-    className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-  />
-  <p className="text-[10px] text-slate-500 mt-1">
-    Used so Slack / appointments show this coach, not Swarm App
-  </p>
-</div>
+                <label className="text-xs text-slate-400 font-medium">GHL User ID</label>
+                <input
+                  type="text"
+                  value={ghlUserId}
+                  onChange={(e) => setGhlUserId(e.target.value)}
+                  placeholder="GoHighLevel user id for this coach"
+                  className={inputClass}
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Used so Slack / appointments show this coach, not Swarm App
+                </p>
+              </div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Temp Password</label>
                 <input
@@ -381,11 +372,9 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* Edit modal — keep your existing block */}
       {isEditOpen && editingUser && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            {/* ... same edit fields as you already have ... */}
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-white">Edit Staff</h3>
               <button
@@ -420,18 +409,18 @@ export default function UserManagement() {
                 />
               </div>
               <div>
-  <label className="text-xs text-slate-400 font-medium">GHL User ID</label>
-  <input
-    type="text"
-    value={editForm.ghlUserId || ''}
-    onChange={(e) => setEditForm({ ...editForm, ghlUserId: e.target.value })}
-    placeholder="GoHighLevel user id for this coach"
-    className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-  />
-  <p className="text-[10px] text-slate-500 mt-1">
-    So Slack / appointments show this coach, not Swarm App
-  </p>
-</div>
+                <label className="text-xs text-slate-400 font-medium">GHL User ID</label>
+                <input
+                  type="text"
+                  value={editForm.ghlUserId || ''}
+                  onChange={(e) => setEditForm({ ...editForm, ghlUserId: e.target.value })}
+                  placeholder="GoHighLevel user id for this coach"
+                  className={inputClass}
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  So Slack / appointments show this coach, not Swarm App
+                </p>
+              </div>
               <div>
                 <label className="text-xs text-slate-400 font-medium">Role</label>
                 <select
