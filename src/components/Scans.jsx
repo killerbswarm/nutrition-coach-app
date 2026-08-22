@@ -4,12 +4,11 @@ import {
   onSnapshot,
   query,
   orderBy,
-  deleteDoc,
-  doc,
-  updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { masterDb, ensureMasterAuth } from '../masterFirebase';
+
+const MASTER_SCANS_API = 'https://us-central1-swarm-checkins-5436d.cloudfunctions.net';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
 import InBodyCompareModal from './InBodyCompareModal';
 import AdminInBodyUploadModal from './AdminInBodyUploadModal';
@@ -191,7 +190,13 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
     if (!canManage) return;
     if (!window.confirm('Delete this scan permanently?')) return;
     try {
-      await deleteDoc(doc(masterDb, 'inbody_scans', id));
+      const res = await fetch(`${MASTER_SCANS_API}/deleteInbodyScan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || 'Delete failed');
       setCompareScans((prev) => prev.filter((s) => s.id !== id));
       if (selectedScan?.id === id) setSelectedScan(null);
     } catch (err) {
@@ -247,7 +252,13 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         }
       }
 
-      await updateDoc(doc(masterDb, 'inbody_scans', editingScan.id), payload);
+      const res = await fetch(`${MASTER_SCANS_API}/updateInbodyScan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanId: editingScan.id, updates: payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || 'Save failed');
       setEditingScan(null);
     } catch (err) {
       alert('Save failed: ' + err.message);
@@ -275,12 +286,20 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
       // 1) Local clients first
       const local = clients.find((c) => last10(c.phone) === phone);
       if (local) {
-        await updateDoc(doc(masterDb, 'inbody_scans', scan.id), {
-          clientId: local.id,
-          clientName: local.name,
-          name: local.name,
-          updatedAt: new Date(),
+        const resLocal = await fetch(`${MASTER_SCANS_API}/updateInbodyScan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scanId: scan.id,
+            updates: {
+              clientId: local.id,
+              clientName: local.name,
+              name: local.name,
+            },
+          }),
         });
+        const dataLocal = await resLocal.json().catch(() => ({}));
+        if (!resLocal.ok || dataLocal.error) throw new Error(dataLocal.error || 'Update failed');
         return;
       }
 
@@ -300,12 +319,20 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         }) || data.contacts[0];
 
       const name = toTitleCase(match.name || 'Member');
-      await updateDoc(doc(masterDb, 'inbody_scans', scan.id), {
-        clientName: name,
-        name,
-        ghlContactId: match.id || '',
-        updatedAt: new Date(),
+      const res2 = await fetch(`${MASTER_SCANS_API}/updateInbodyScan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scanId: scan.id,
+          updates: {
+            clientName: name,
+            name,
+            ghlContactId: match.id || '',
+          },
+        }),
       });
+      const data2 = await res2.json().catch(() => ({}));
+      if (!res2.ok || data2.error) throw new Error(data2.error || 'Update failed');
     } catch (err) {
       alert('Lookup failed: ' + err.message);
     } finally {

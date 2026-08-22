@@ -11,6 +11,10 @@ const CALENDAR_TIMEZONE = "America/New_York";
 const crypto = require("crypto");
 
 const { getMasterDb } = require("./masterDb");
+// InBody scans live on swarm-checkins-5436d (master).
+// This project only receives the LookinBody webhook and writes via getMasterDb().
+// Edit/delete scan APIs are deployed on the master project, not here.
+
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -22,11 +26,11 @@ const FATSECRET_CLIENT_SECRET = defineSecret("FATSECRET_CLIENT_SECRET");
 const FATSECRET_CONSUMER_KEY = defineSecret("FATSECRET_CONSUMER_KEY");
 const FATSECRET_CONSUMER_SECRET = defineSecret("FATSECRET_CONSUMER_SECRET");
 // --- GHL & INBODY API CONFIGURATION ---
-const GHL_API_TOKEN = process.env.GHL_API_TOKEN || "pit-b6637265-a6ff-47cf-bcda-78df37fb3526";
+const GHL_API_TOKEN = process.env.GHL_API_TOKEN || "";
 const GHL_API_VERSION = "2021-07-28";
-const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || "tNtRSRKPPnHXZjLAo4zs";
+const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || "";
 
-const INBODY_API_KEY = process.env.INBODY_API_KEY || "dGKyIYZEo88HN9IqnFTh+I2TsesRtGNE8bijk5kwLH0=";
+const INBODY_API_KEY = process.env.INBODY_API_KEY || "";
 const INBODY_ACCOUNT = process.env.INBODY_ACCOUNT || "swarm";
 
 async function getFatSecretAccessToken() {
@@ -864,17 +868,6 @@ exports.syncBookingDeleteToGhl = onDocumentDeleted(
     await ghlDeleteAppointment(data.ghlAppointmentId);
   }
 );
-
-exports.syncBookingCreateToGhl = onDocumentCreated("bookings/{bookingId}", async (event) => {
-  const data = event.data?.data();
-  if (!data) return;
-  if (data.ghlAppointmentId) return; // already synced
-
-  const ghlId = await ghlCreateAppointment(data);
-  if (ghlId) {
-    await event.data.ref.set({ ghlAppointmentId: ghlId }, { merge: true });
-  }
-});
 
 // =========================================================================
 // ENDPOINT 7: InBody Webhook

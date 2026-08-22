@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { doc, deleteDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { masterDb, ensureMasterAuth } from '../masterFirebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
 import InBodyCompareModal from './InBodyCompareModal';
+
+const MASTER_SCANS_API = 'https://us-central1-swarm-checkins-5436d.cloudfunctions.net';
 
 
 const parseScanDate = (dateVal) => {
@@ -154,18 +153,6 @@ function InBodyProgressChart({ scans }) {
   );
 }
 
-const handleDeleteScan = async (id) => {
-  if (!canManage) return;
-  if (!window.confirm('Delete this scan?')) return;
-  try {
-    await deleteDoc(doc(masterDb, 'inbody_scans', id));
-    if (selectedScan?.id === id) setSelectedScan(null);
-    setCompareScans((p) => p.filter((s) => s.id !== id));
-  } catch (err) {
-    alert(err.message);
-  }
-};
-
 
 export default function ClientInBody({ selectedClient, clientScans = [], canManage = false }) {
   const [selectedScan, setSelectedScan] = useState(null);
@@ -176,7 +163,13 @@ export default function ClientInBody({ selectedClient, clientScans = [], canMana
   const handleDeleteScan = async (id) => {
     if (!window.confirm('Delete this scan?')) return;
     try {
-      await deleteDoc(doc(masterDb, 'inbody_scans', id));
+      const res = await fetch(`${MASTER_SCANS_API}/deleteInbodyScan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scanId: id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || 'Delete failed');
       if (selectedScan?.id === id) setSelectedScan(null);
       setCompareScans((p) => p.filter((s) => s.id !== id));
     } catch (err) {
