@@ -9,6 +9,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { masterDb, ensureMasterAuth } from '../masterFirebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
 import InBodyCompareModal from './InBodyCompareModal';
 import AdminInBodyUploadModal from './AdminInBodyUploadModal';
@@ -104,10 +105,18 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'inbody_scans'), orderBy('scanDate', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setScans(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    let unsub = () => {};
+    (async () => {
+      try {
+        await ensureMasterAuth();
+      } catch (e) {
+        console.warn('master auth', e);
+      }
+      const q = query(collection(masterDb, 'inbody_scans'), orderBy('scanDate', 'desc'));
+      unsub = onSnapshot(q, (snap) => {
+        setScans(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      });
+    })();
     return () => unsub();
   }, []);
 
@@ -182,7 +191,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
     if (!canManage) return;
     if (!window.confirm('Delete this scan permanently?')) return;
     try {
-      await deleteDoc(doc(db, 'inbody_scans', id));
+      await deleteDoc(doc(masterDb, 'inbody_scans', id));
       setCompareScans((prev) => prev.filter((s) => s.id !== id));
       if (selectedScan?.id === id) setSelectedScan(null);
     } catch (err) {
@@ -238,7 +247,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         }
       }
 
-      await updateDoc(doc(db, 'inbody_scans', editingScan.id), payload);
+      await updateDoc(doc(masterDb, 'inbody_scans', editingScan.id), payload);
       setEditingScan(null);
     } catch (err) {
       alert('Save failed: ' + err.message);
@@ -266,7 +275,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
       // 1) Local clients first
       const local = clients.find((c) => last10(c.phone) === phone);
       if (local) {
-        await updateDoc(doc(db, 'inbody_scans', scan.id), {
+        await updateDoc(doc(masterDb, 'inbody_scans', scan.id), {
           clientId: local.id,
           clientName: local.name,
           name: local.name,
@@ -291,7 +300,7 @@ export default function Scans({ focusScanId, onFocusConsumed }) {
         }) || data.contacts[0];
 
       const name = toTitleCase(match.name || 'Member');
-      await updateDoc(doc(db, 'inbody_scans', scan.id), {
+      await updateDoc(doc(masterDb, 'inbody_scans', scan.id), {
         clientName: name,
         name,
         ghlContactId: match.id || '',

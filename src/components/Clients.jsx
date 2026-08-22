@@ -12,6 +12,7 @@ import {
   deleteField,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { masterDb, ensureMasterAuth } from '../masterFirebase';
 import { useAuth } from '../context/AuthContext';
 import ClientPayrollPanel from './ClientPayrollPanel';
 //import pages 
@@ -177,8 +178,14 @@ export default function Clients({ focus, onFocusConsumed }) {
   }, [selectedClient?.id]);
 
   useEffect(() => {
-    const q = query(collection(db, 'inbody_scans'), orderBy('scanDate', 'desc'));
-    const unsub = onSnapshot(q, (snap) => setAllScans(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    let unsub = () => {};
+    (async () => {
+      try { await ensureMasterAuth(); } catch (e) { console.warn('master auth', e); }
+      const q = query(collection(masterDb, 'inbody_scans'), orderBy('scanDate', 'desc'));
+      unsub = onSnapshot(q, (snap) => {
+        setAllScans(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      }, (err) => console.error('inbody_scans listen', err));
+    })();
     return () => unsub();
   }, []);
 
@@ -348,7 +355,15 @@ export default function Clients({ focus, onFocusConsumed }) {
     if (s.clientId && s.clientId === selectedClient.id) return true;
     const cp = normalizePhone(selectedClient.phone);
     const sp = normalizePhone(s.phone);
-    return cp && sp && (cp.endsWith(sp) || sp.endsWith(cp));
+    if (cp && sp) {
+      const c10 = cp.slice(-10);
+      const s10 = sp.slice(-10);
+      if (c10 && s10 && (c10 === s10 || cp.endsWith(sp) || sp.endsWith(cp))) return true;
+    }
+    const cEmail = String(selectedClient.email || '').trim().toLowerCase();
+    const sEmail = String(s.email || '').trim().toLowerCase();
+    if (cEmail && sEmail && cEmail === sEmail) return true;
+    return false;
   });
 
   const unlinkedScanGroups = (() => {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { masterDb, ensureMasterAuth } from '../masterFirebase';
 import InBodyResultSheetModal from './InBodyResultSheetModal';
 import InBodyCompareModal from './InBodyCompareModal';
 
@@ -157,7 +158,7 @@ const handleDeleteScan = async (id) => {
   if (!canManage) return;
   if (!window.confirm('Delete this scan?')) return;
   try {
-    await deleteDoc(doc(db, 'inbody_scans', id));
+    await deleteDoc(doc(masterDb, 'inbody_scans', id));
     if (selectedScan?.id === id) setSelectedScan(null);
     setCompareScans((p) => p.filter((s) => s.id !== id));
   } catch (err) {
@@ -175,7 +176,7 @@ export default function ClientInBody({ selectedClient, clientScans = [], canMana
   const handleDeleteScan = async (id) => {
     if (!window.confirm('Delete this scan?')) return;
     try {
-      await deleteDoc(doc(db, 'inbody_scans', id));
+      await deleteDoc(doc(masterDb, 'inbody_scans', id));
       if (selectedScan?.id === id) setSelectedScan(null);
       setCompareScans((p) => p.filter((s) => s.id !== id));
     } catch (err) {

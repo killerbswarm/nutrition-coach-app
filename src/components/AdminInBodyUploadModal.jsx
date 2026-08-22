@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import {
-  collection,
   writeBatch,
   doc,
-  getDocs,
 } from 'firebase/firestore';
 import { masterDb } from '../masterFirebase';
 
@@ -98,7 +96,6 @@ function datetimeKey(raw, iso) {
 export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], onComplete }) {
   const [rawText, setRawText] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [replaceAll, setReplaceAll] = useState(true);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [statusMsg, setStatusMsg] = useState('');
 
@@ -110,16 +107,6 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
     const reader = new FileReader();
     reader.onload = (evt) => setRawText(evt.target.result);
     reader.readAsText(file);
-  };
-
-  const commitBatches = async (items, writer) => {
-    const chunkSize = 400;
-    for (let i = 0; i < items.length; i += chunkSize) {
-      const chunk = items.slice(i, i + chunkSize);
-      const batch = writeBatch(masterDb);
-      chunk.forEach((item) => writer(batch, item));
-      await batch.commit();
-    }
   };
 
   const handleProcessImport = async () => {
@@ -146,11 +133,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
         return rowObj;
       });
 
-      if (replaceAll) {
-        setStatusMsg('Clearing existing scans...');
-        const existing = await getDocs(collection(masterDb, 'inbody_scans'));
-        await commitBatches(existing.docs, (batch, d) => batch.delete(d.ref));
-      }
+      // Upsert only: same phone/id + test time overwrites that doc. Never deletes the collection.
 
       const totalRows = rows.length;
       setProgress({ current: 0, total: totalRows });
@@ -268,7 +251,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
         setStatusMsg(`Saved ${processed} of ${totalRows} scan records...`);
       }
 
-      setStatusMsg(`Success! Imported ${totalRows - skipped} records${skipped ? ` (${skipped} skipped)` : ''}.`);
+      setStatusMsg(`Success! Upserted ${totalRows - skipped} records${skipped ? ` (${skipped} skipped)` : ''} (existing same person+time updated, new ones added).`);
       setTimeout(() => {
         setIsUploading(false);
         if (onComplete) onComplete();
@@ -288,24 +271,18 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
           <div>
             <h2 className="text-lg font-bold text-white">Upload Master LookinBody CSV</h2>
             <p className="text-xs text-slate-400">
-              Re-import the full history. Same person + test time overwrites instead of duplicating.
+              Safe upsert. Same person + test time updates that scan; new rows are added. Never wipes the database.
             </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
         </div>
 
         <div className="space-y-4">
-          <label className="flex items-start gap-2 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              checked={replaceAll}
-              onChange={(e) => setReplaceAll(e.target.checked)}
-              className="mt-0.5 accent-blue-500"
-            />
-            <span>
-              Replace all existing scans first (recommended). Uncheck only if you want to merge on top of what is already there.
-            </span>
-          </label>
+          <div className="text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl p-3 leading-relaxed">
+            Safe import: each row is keyed by <span className="text-slate-200 font-semibold">phone/ID + test date/time</span>.
+            If that scan already exists it is <span className="text-slate-200 font-semibold">updated</span>; otherwise it is <span className="text-slate-200 font-semibold">added</span>.
+            Nothing is bulk-deleted.
+          </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
@@ -357,7 +334,7 @@ export default function AdminInBodyUploadModal({ isOpen, onClose, clients = [], 
             disabled={isUploading || !rawText.trim()}
             className="px-5 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold"
           >
-            {isUploading ? 'Importing Scans...' : 'Process & Upload All Scans'}
+            {isUploading ? 'Importing...' : 'Upload / Update Scans'}
           </button>
         </div>
       </div>
