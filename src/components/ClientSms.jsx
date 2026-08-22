@@ -58,6 +58,83 @@ export default function ClientSms({
   const [smsExpanded, setSmsExpanded] = useState(false);
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const smsTextRef = useRef(null);
+
+
+  const EMOJI_CATEGORIES = [
+    {
+      id: 'smileys',
+      label: '😊',
+      title: 'Smileys',
+      emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','☺️','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','😮‍💨','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'],
+    },
+    {
+      id: 'gestures',
+      label: '👍',
+      title: 'Gestures',
+      emojis: ['👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦵','🦶','👂','🦻','👃','🧠','👀','👁️','👅','👄'],
+    },
+    {
+      id: 'hearts',
+      label: '❤️',
+      title: 'Hearts',
+      emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️'],
+    },
+    {
+      id: 'activity',
+      label: '🏋️',
+      title: 'Activity',
+      emojis: ['🏋️','🏋️‍♂️','🏋️‍♀️','🤸','🧘','🏃','🏃‍♂️','🏃‍♀️','🚶','🚴','🏊','⚽','🏀','🏈','⚾','🎾','🏐','🏉','🎱','🏓','🏸','🥅','🏒','🥊','🥋','🎯','⛳','🏆','🥇','🥈','🥉','🏅','🎖️','🏵️','🎗️','🎫','🎟️','🎪','🎭','🩰','🎨','🎬','🎤','🎧','🎼','🎹','🥁','🎷','🎺','🎸','🪕','🎻','🎲','♟️','🎮'],
+    },
+    {
+      id: 'food',
+      label: '🥗',
+      title: 'Food',
+      emojis: ['🍏','🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🫒','🧄','🧅','🥔','🍠','🥐','🥯','🍞','🥖','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🦴','🌭','🍔','🍟','🍕','🫓','🥪','🥙','🧆','🌮','🌯','🥗','🥘','🍝','🍜','🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥠','🥮','🍢','🍡','🍧','🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯','🥛','🍼','☕','🍵','🧃','🥤','🧋','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🧊','🥄','🍴','🍽️','🥣','🥡','🥢','🧂'],
+    },
+    {
+      id: 'nature',
+      label: '🌟',
+      title: 'Nature',
+      emojis: ['⭐','🌟','✨','⚡','🔥','💥','☄️','☀️','🌤️','⛅','🌈','☁️','🌧️','❄️','💧','💦','🌊','🌍','🌎','🌏','🌱','🌲','🌳','🌴','🌵','🌾','🌿','☘️','🍀','🍁','🍂','🍃','🌺','🌸','🌼','🌻','🌹','🥀','🌷','💐','🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🪱','🐛','🦋','🐌','🐞','🐜','🪰','🐢','🐍','🦎','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈'],
+    },
+    {
+      id: 'objects',
+      label: '📱',
+      title: 'Objects',
+      emojis: ['⌚','📱','💻','⌨️','🖥️','🖨️','🖱️','💾','💿','📀','📷','📸','📹','🎥','📞','☎️','📺','📻','⏱️','⏰','⏳','⌛','📡','🔋','🔌','💡','🔦','🕯️','🧯','🛢️','💸','💵','💴','💶','💷','💰','💳','💎','⚖️','🪜','🧰','🔧','🔨','⚒️','🛠️','⛏️','🔩','⚙️','🧱','⛓️','🧲','🔫','💣','🧨','🪓','🔪','🗡️','⚔️','🛡️','🚬','⚰️','🪦','⚱️','🏺','🔮','📿','🧿','💈','⚗️','🔭','🔬','🕳️','🩹','🩺','💊','💉','🩸','🧬','🦠','🧫','🧪','🌡️','🧹','🧺','🧻','🚽','🚰','🚿','🛁','🛀','🧼','🪥','🧽','🧴','🛎️','🔑','🗝️','🚪','🪑','🛋️','🛏️','🛌','🧸','🖼️','🛍️','🛒','🎁','🎈','🎏','🎀','🎊','🎉','🎎','🏮','🎐','🧧','✉️','📨','📧','💌','📥','📤','📦','🏷️','📪','📫','📬','📭','📮','📯','📜','📃','📄','📑','🧾','📊','📈','📉','🗒️','🗓️','📆','📅','🗑️','📇','🗃️','🗳️','🗄️','📋','📁','📂','🗂️','🗞️','📰','📓','📔','📒','📕','📗','📘','📙','📚','📖','🔖','🧷','🔗','📎','🖇️','📐','📏','🧮','📌','📍','✂️','🖊️','🖋️','✒️','🖌️','🖍️','📝','✏️','🔍','🔎','🔏','🔐','🔒','🔓'],
+    },
+    {
+      id: 'symbols',
+      label: '✅',
+      title: 'Symbols',
+      emojis: ['❤️','💯','💥','💫','💢','💤','💨','🕳️','💣','💬','👁️‍🗨️','🗨️','🗯️','💭','💤','✅','❌','❎','✔️','✖️','➕','➖','➗','➰','➿','❓','❔','❕','❗','〰️','©️','®️','™️','🔘','🔴','🟠','🟡','🟢','🔵','🟣','⚫','⚪','🟤','🔺','🔻','🔸','🔹','🔶','🔷','🔳','🔲','▪️','▫️','◾','◽','◼️','◻️','🟥','🟧','🟨','🟩','🟦','🟪','⬛','⬜','🟫','🔈','🔇','🔉','🔊','🔔','🔕','📣','📢','💬','💭','🗯️','♠️','♣️','♥️','♦️','🃏','🎴','🀄','🕐','🕑','🕒','🕓','🕔','🕕','🕖','🕗','🕘','🕙','🕚','🕛','🔼','🔽','▶️','⏸','⏹','⏺','⏭️','⏮️','⏩','⏪','🔀','🔁','🔂','⬆️','↗️','➡️','↘️','⬇️','↙️','⬅️','↖️','↕️','↔️','↩️','↪️','⤴️','⤵️','🔃','🔄'],
+    },
+  ];
+
+  const [emojiTab, setEmojiTab] = useState('smileys');
+
+  const insertEmoji = (emoji) => {
+    const el = smsTextRef.current;
+    const text = smsText || '';
+    if (el && typeof el.selectionStart === 'number') {
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const next = text.slice(0, start) + emoji + text.slice(end);
+      setSmsText(next);
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          const pos = start + emoji.length;
+          el.setSelectionRange(pos, pos);
+        } catch (_) {}
+      });
+    } else {
+      setSmsText(text + emoji);
+    }
+  };
+
   const [toast, setToast] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(null); // messageId
   const messagesEndRef = useRef(null);
@@ -542,6 +619,7 @@ export default function ClientSms({
         }}
       >
         <textarea
+          ref={smsTextRef}
           value={smsText}
           onChange={(e) => setSmsText(e.target.value)}
           rows={smsExpanded ? 6 : 2}
@@ -598,6 +676,81 @@ export default function ClientSms({
           </div>
         )}
 
+        {showEmojiPicker && (
+          <div
+            style={{
+              marginTop: 8,
+              border: '1px solid #e2e8f0',
+              borderRadius: 12,
+              background: '#f8fafc',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                gap: 2,
+                padding: '6px 6px 0',
+                borderBottom: '1px solid #e2e8f0',
+                overflowX: 'auto',
+              }}
+            >
+              {EMOJI_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  title={cat.title}
+                  onClick={() => setEmojiTab(cat.id)}
+                  style={{
+                    border: 'none',
+                    background: emojiTab === cat.id ? '#e2e8f0' : 'transparent',
+                    fontSize: 18,
+                    cursor: 'pointer',
+                    padding: '6px 8px',
+                    borderRadius: '8px 8px 0 0',
+                    lineHeight: 1,
+                  }}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 2,
+                padding: 8,
+                maxHeight: 200,
+                overflowY: 'auto',
+              }}
+            >
+              {(EMOJI_CATEGORIES.find((c) => c.id === emojiTab) || EMOJI_CATEGORIES[0]).emojis.map(
+                (em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => insertEmoji(em)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      fontSize: 22,
+                      cursor: 'pointer',
+                      lineHeight: 1.2,
+                      padding: 4,
+                      borderRadius: 6,
+                      width: 36,
+                      height: 36,
+                    }}
+                  >
+                    {em}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
         <div
           style={{
             marginTop: 10,
@@ -623,6 +776,22 @@ export default function ClientSms({
               }}
             >
               {smsExpanded ? 'Collapse' : 'Expand'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker((v) => !v)}
+              title="Emoji"
+              style={{
+                border: '1px solid #e2e8f0',
+                background: showEmojiPicker ? '#eff6ff' : '#fff',
+                fontSize: 16,
+                lineHeight: 1,
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 8,
+              }}
+            >
+              😊
             </button>
             <label
               style={{
