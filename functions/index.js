@@ -481,13 +481,16 @@ exports.sendGhlSms = onRequest({ cors: true, invoker: "public" }, async (req, re
   try {
     if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
-    const { contactId, message, attachments } = req.body;
+    const { contactId, message, attachments, scheduledAt, scheduledTimestamp } = req.body;
 
-    if (!contactId || !message) {
-      return res.status(400).json({ error: "Missing contactId or message text" });
+    if (!contactId) {
+      return res.status(400).json({ error: "Missing contactId" });
+    }
+    if (!message && (!attachments || !attachments.length)) {
+      return res.status(400).json({ error: "Need message text or an attachment" });
     }
 
-        const payload = {
+    const payload = {
       type: "SMS",
       contactId,
       message: message || "",
@@ -495,6 +498,32 @@ exports.sendGhlSms = onRequest({ cors: true, invoker: "public" }, async (req, re
     if (Array.isArray(attachments) && attachments.length > 0) {
       payload.attachments = attachments;
     }
+
+    // Prefer client-provided unix seconds (local time already converted)
+    let ts = scheduledTimestamp != null ? Number(scheduledTimestamp) : null;
+    if (!ts && scheduledAt) {
+      const d = new Date(scheduledAt);
+      if (!isNaN(d.getTime())) ts = Math.floor(d.getTime() / 1000);
+    }
+    if (ts && !Number.isFinite(ts)) ts = null;
+
+    if (ts) {
+      const now = Math.floor(Date.now() / 1000);
+      if (ts < now + 60) {
+        return res.status(400).json({
+          error: "Schedule time must be at least 1 minute in the future",
+          scheduledTimestamp: ts,
+          now,
+        });
+      }
+      payload.scheduledTimestamp = ts;
+    }
+
+    console.log("sendGhlSms payload", {
+      contactId,
+      hasMessage: !!payload.message,
+      scheduledTimestamp: payload.scheduledTimestamp || null,
+    });
 
     const response = await fetch(
       "https://services.leadconnectorhq.com/conversations/messages",
@@ -513,16 +542,70 @@ exports.sendGhlSms = onRequest({ cors: true, invoker: "public" }, async (req, re
 
     if (!response.ok) {
       console.error("GHL Send SMS Error Details:", data);
-      return res.status(400).json({ error: data.message || "Failed to send SMS via GHL", details: data });
+      return res.status(400).json({
+        error: data.message || "Failed to send SMS via GHL",
+        details: data,
+        scheduledTimestamp: payload.scheduledTimestamp || null,
+      });
     }
 
-    return res.status(200).json({ success: true, message: data });
+    return res.status(200).json({
+      success: true,
+      message: data,
+      scheduled: !!payload.scheduledTimestamp,
+      scheduledTimestamp: payload.scheduledTimestamp || null,
+    });
   } catch (err) {
     console.error("Send SMS Error:", err);
     return res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 });
 
+
+exports.cancelScheduledGhlSms = onRequest({ cors: true, invoker: "public" }, async (req, res) => {
+  try {
+    if (req.method !== "POST" && req.method !== "DELETE") {
+      return res.status(405).send("Method Not Allowed");
+    }
+    const messageId = req.body?.messageId || req.query?.messageId;
+    if (!messageId) {
+      return res.status(400).json({ error: "Missing messageId" });
+    }
+
+    const response = await fetch(
+      `https://services.leadconnectorhq.com/conversations/messages/${messageId}/schedule`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${GHL_API_TOKEN}`,
+          Version: GHL_API_VERSION,
+          Accept: "application/json",
+        },
+      }
+    );
+
+    const text = await response.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
+
+    if (!response.ok) {
+      console.error("GHL cancel schedule error", data);
+      return res.status(400).json({
+        error: data.message || data.error || "Failed to cancel scheduled message",
+        details: data,
+      });
+    }
+
+    return res.status(200).json({ success: true, messageId, data });
+  } catch (err) {
+    console.error("cancelScheduledGhlSms", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 // =========================================================================
 // ENDPOINT 6: Search & Import GHL Contacts
 // =========================================================================
